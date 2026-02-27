@@ -6,7 +6,7 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-kubernetes-tools.vscode-kubernetes-tools"
+        "esbenp.prettier-vscode"
       ]
 
     }

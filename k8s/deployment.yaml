@@ -21,13 +21,6 @@ spec:
           image: message-wall           # Tilt replaces with the local image
           ports:
             - containerPort: 3000
-          resources:
-            requests:
-              cpu: 100m           # 0.1 vCPU — the scheduler reserves this
-              memory: 128Mi       # 128 MB — guaranteed minimum
-            limits:
-              cpu: 500m           # 0.5 vCPU — ceiling, throttled beyond
-              memory: 256Mi       # 256 MB — OOMKill beyond
           env:
             - name: DB_HOST
               value: "demo-db-postgresql"
