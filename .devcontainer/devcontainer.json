@@ -1,0 +1,14 @@
+{
+  "name": "Message Wall - Node.js",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "postCreateCommand": "if [ -f package.json ]; then npm install --no-package-lock; fi"
+}

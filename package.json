@@ -1,0 +1,13 @@
+{
+  "name": "message-wall",
+  "version": "1.0.0",
+  "description": "SUSE Rancher Developer Access + Tilt: Demo",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "prom-client": "^15.1.0"
+  }
+}

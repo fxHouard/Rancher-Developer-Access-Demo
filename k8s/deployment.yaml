@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name:  message-wall
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: message-wall
+  template:
+    metadata:
+      labels:
+        app: message-wall
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: message-wall
+          image: message-wall           # Tilt replaces with the local image
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: 100m           # 0.1 vCPU — the scheduler reserves this
+              memory: 128Mi       # 128 MB — guaranteed minimum
+            limits:
+              cpu: 500m           # 0.5 vCPU — ceiling, throttled beyond
+              memory: 256Mi       # 256 MB — OOMKill beyond
+          env:
+            - name: DB_HOST
+              value: "demo-db-postgresql"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: "demo"
+            - name: DB_PASSWORD
+              value: "demo"
+            - name: DB_NAME
+              value: "demo"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "3000"
+      prometheus.io/path: "/metrics"
