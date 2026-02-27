@@ -6,8 +6,9 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "redhat.vscode-yaml"
-      ]
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+      ], 
+
     }
   },
   "postCreateCommand": "if [ -f package.json ]; then npm install --no-package-lock; fi"
