@@ -248,7 +248,7 @@ const html = () => `<!DOCTYPE html>
     <form class="compose" onsubmit="send(event)">
       <input type="text" id="input" placeholder="Say something…" autocomplete="off" maxlength="280" autofocus />
       <button type="submit" id="btn">Post</button>
-      <button type="button" onclick="clear_()" class="clear-btn" title="Delete all messages">🗑</button>
+      <button type="button" onclick="clear_()" class="clear-btn" title="Delete all messages"><span style="display:inline-block;transform:scale(1.8)">🧹</button>
     </form>
     <div class="messages" id="messages"></div>
   </main>
