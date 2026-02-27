@@ -49,7 +49,3 @@ spec:
               path: /health
               port: 3000
             initialDelaySeconds: 5
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "3000"
-      prometheus.io/path: "/metrics"
