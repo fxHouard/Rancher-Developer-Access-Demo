@@ -4,6 +4,3 @@ alertmanager:
 global:
   imagePullSecrets:
   - application-collection
-server:
-  service:
-    type: NodePort

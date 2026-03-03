@@ -4,8 +4,7 @@ auth:
   postgresPassword: demo
   postgresUsername: demo
   username: demo
+  password: demo
 global:
   imagePullSecrets:
   - application-collection
-service:
-  type: NodePort
