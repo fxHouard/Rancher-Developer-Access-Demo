@@ -28,78 +28,7 @@ It is structured in two parts: first, a **hands-on demo** that gets you running 
 
 ### 2.1 Diagram
 
-```mermaid
-graph TB
-    subgraph "Developer workstation"
-        IDE["VS Code"]
-        
-        TILT["Tilt<br/>(on host)"]
-        
-        subgraph "Rancher Desktop (VM)"
-            MOBY["dockerd / moby<br/><i>container runtime</i>"]
-            K3S["k3s<br/><i>Kubernetes cluster</i>"]
-            MOBY -.->|"shared images<br/>(same store)"| K3S
-            
-            subgraph "Inside k3s cluster"
-                APP["Your app pods"]
-                PG["PostgreSQL<br/>(via Helm)"]
-                PROM["Prometheus<br/>(via Helm)"]
-                GRAF["Grafana<br/>(via Helm)"]
-                REDIS["Redis, Kafka...<br/>(via Helm)"]
-                APP -->|"connects to"| PG
-                APP -->|"connects to"| REDIS
-                PROM -->|"scrapes /metrics"| APP
-                GRAF -->|"queries"| PROM
-            end
-        end
-        
-        TILT -->|"watch files<br/>+ live_update"| APP
-        TILT -->|"kubectl apply"| K3S
-        TILT -->|"docker build"| MOBY
-        TILT -->|"port-forward"| APP
-    end
-
-    subgraph "SUSE Application Collection"
-        BCI["Base Images<br/>BCI Base / Micro"]
-        LANG["Languages<br/>Go, Node.js, Rust..."]
-        CHARTS["Helm Charts<br/>PostgreSQL, Redis...<br/>Prometheus, Grafana..."]
-        TOOLS["Tools<br/>Trivy, Cosign, Helm..."]
-    end
-
-    subgraph "Outer Loop - CI/CD and Production"
-        GIT["Git Repository"]
-        CI["CI Pipeline<br/>(build, test, scan, push)"]
-        ARGO["Argo CD<br/>(GitOps sync)"]
-        PROD["Production Cluster"]
-        GIT -->|"push triggers"| CI
-        CI -->|"image to registry"| PROD
-        ARGO -->|"reconciles"| PROD
-        GIT -->|"watches"| ARGO
-    end
-
-    K3S -->|"pull images"| BCI
-    K3S -->|"helm install"| CHARTS
-    PROD -->|"pull images"| BCI
-    PROD -->|"helm install"| CHARTS
-
-    style IDE fill:#0C322C,color:#fff
-    style K3S fill:#30845A,color:#fff
-    style MOBY fill:#1F2937,color:#fff
-    style TILT fill:#E65100,color:#fff
-    style APP fill:#30845A,color:#fff
-    style PG fill:#336791,color:#fff
-    style PROM fill:#E6522C,color:#fff
-    style GRAF fill:#F2CC0C,color:#000
-    style REDIS fill:#DC382D,color:#fff
-    style BCI fill:#30845A,color:#fff
-    style LANG fill:#30845A,color:#fff
-    style CHARTS fill:#30845A,color:#fff
-    style TOOLS fill:#30845A,color:#fff
-    style GIT fill:#F05032,color:#fff
-    style CI fill:#1F2937,color:#fff
-    style ARGO fill:#EF7B4D,color:#fff
-    style PROD fill:#30845A,color:#fff
-```
+![Inner Loop and Outer Loop architecture -- same trusted SUSE foundations on both sides](images/inner-outer-loop.png)
 
 ### 2.2 Stack layers
 

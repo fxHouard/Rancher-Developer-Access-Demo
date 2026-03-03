@@ -4,6 +4,8 @@ A small interactive message wall running on Kubernetes, designed to demonstrate 
 
 Post messages, delete them, change the accent color — and watch everything update in seconds. Metrics are collected by Prometheus and displayed in a Grafana dashboard, auto-provisioned from code.
 
+![Inner Loop and Outer Loop architecture](docs/images/inner-outer-loop.png)
+
 ## 1. 🖥️  Install Rancher Desktop
 
 Download and install from [rancherdesktop.io](https://rancherdesktop.io).
