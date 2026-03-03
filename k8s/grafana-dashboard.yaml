@@ -87,7 +87,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "rate(app_http_request_duration_seconds_count[1m])",
+            "expr": "rate(app_http_request_duration_seconds_count[5m])",
             "legendFormat": "{{method}} {{path}}"
           }],
           "fieldConfig": {
@@ -103,7 +103,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "rate(app_messages_posted_total[1m]) * 60",
+            "expr": "rate(app_messages_posted_total[5m]) * 60",
             "legendFormat": "posts/min"
           }],
           "fieldConfig": {
@@ -122,7 +122,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "histogram_quantile(0.95, rate(app_http_request_duration_seconds_bucket[1m]))",
+            "expr": "histogram_quantile(0.95, rate(app_http_request_duration_seconds_bucket[5m]))",
             "legendFormat": "p95 {{method}} {{path}}"
           }],
           "fieldConfig": {
@@ -169,5 +169,5 @@ data:
             "overrides": []
           }
         }
-      ],
+      ]
       }

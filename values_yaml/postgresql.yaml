@@ -1,0 +1,11 @@
+# values-dev.yaml — Configuration dev locale
+auth:
+  database: demo
+  postgresPassword: demo
+  postgresUsername: demo
+  username: demo
+global:
+  imagePullSecrets:
+  - application-collection
+service:
+  type: NodePort

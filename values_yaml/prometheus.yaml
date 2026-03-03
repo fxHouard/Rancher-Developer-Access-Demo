@@ -1,0 +1,9 @@
+alertmanager:
+  service:
+    type: NodePort
+global:
+  imagePullSecrets:
+  - application-collection
+server:
+  service:
+    type: NodePort

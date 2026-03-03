@@ -1,0 +1,11 @@
+adminPassword: admin
+global:
+  imagePullSecrets:
+  - application-collection
+service:
+  type: NodePort
+sidecar:
+  dashboards:
+    enabled: true
+  datasources:
+    enabled: true
