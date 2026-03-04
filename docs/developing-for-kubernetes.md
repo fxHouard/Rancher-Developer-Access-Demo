@@ -70,34 +70,39 @@ Rancher Desktop is an open-source desktop application that provides a **local Ku
 
 ### 3.3 Why dockerd (moby) when production runs containerd?
 
-In production, Kubernetes uses **containerd** (or CRI-O) as runtime. But for local development, **dockerd (moby)** has a decisive advantage:
+In production, Kubernetes uses **containerd** as runtime. Here is the key insight: **so does Rancher Desktop, even in moby mode.** The k3s cluster always runs on containerd, regardless of the setting. Choosing "dockerd (moby)" does not replace containerd -- it adds Docker's daemon alongside it, and the two share the same image store.
+
+This is what gives us the best of both worlds: the same runtime as production, plus Docker's developer-friendly tooling.
 
 ```
-With dockerd (moby) -- what we use:
+Rancher Desktop VM (moby mode):
 +---------------------------------------------+
-| Rancher Desktop VM                          |
 |                                             |
-|   dockerd (moby)                            |
-|   +-- local image store <--------------+    |
-|                                        |    |
-|   k3s (containerd)                     |    |
-|   +-- uses the same image store -------+    |
+|   dockerd (moby)         k3s (containerd)   |
+|   +-- image store <----> image store --+    |
+|       (shared)           (same!)       |    |
 |                                             |
-|   docker build -> local image -> k3s sees it|
+|   docker build -> image appears in both     |
 |   NO PUSH NEEDED!                           |
 +---------------------------------------------+
 
-With containerd alone -- the classic workflow:
+Rancher Desktop VM (containerd mode):
 +---------------------------------------------+
-|   nerdctl build -> image in containerd      |
-|   nerdctl push -> registry                  |
-|   k3s pull <- registry                      |
 |                                             |
+|   nerdctl (containerd)   k3s (containerd)   |
+|   +-- image store        image store --+    |
+|       (separate!)        (separate!)   |    |
+|                                             |
+|   nerdctl build -> push -> pull -> k3s      |
 |   3 steps instead of 1 = slower             |
 +---------------------------------------------+
 ```
 
-Images built by Docker are **immediately visible** to k3s. No registry, no push, no pull. This is what makes the inner loop so fast. This is also why the demo K8s Deployments use `imagePullPolicy: IfNotPresent` (or `Never`): we tell k3s "use the local image, do not look in a registry".
+Images built by Docker are **immediately visible** to k3s because they share the same store. No registry, no push, no pull. This is what makes the inner loop so fast.
+
+> **No compromise on parity.** Your app runs on containerd in both cases. The only difference is the CLI used to build images: `docker` (moby mode) vs `nerdctl` (containerd mode). At runtime, k3s behaves identically.
+
+This is also why the demo K8s Deployments use `imagePullPolicy: IfNotPresent` (or `Never`): we tell k3s "use the local image, do not look in a registry".
 
 ---
 
@@ -110,21 +115,22 @@ Images built by Docker are **immediately visible** to k3s. No registry, no push,
 The registry is `dp.apps.rancher.io`. You will find:
 
 - **Base images (BCI)** -- SUSE Linux Enterprise Base Container Images: minimal, secure foundations.
-- **Language images** -- Node.js, Go, Python, Rust, Java, Ruby, PHP, .NET... with complete toolchains.
-- **Middleware** -- PostgreSQL, Redis, RabbitMQ, Kafka, MongoDB, MariaDB, NGINX, Apache...
+- **Language images** -- Node.js, Go, Rust, Java, Ruby, Clojure... with complete toolchains.
+- **Middleware** -- PostgreSQL, Redis, Kafka, MariaDB, Nats, NGINX, Apache ActiveMQ, Apache Apisix, Apache Tomcat...
 - **Tools** -- Helm, Trivy, Cosign, kubectl, ArgoCD, Prometheus, Grafana...
-- **Helm Charts** -- Ready-to-deploy packages for the entire stack above.
+
+Available in the form of single containers, or, when relevant, full-fledge applications with helm-charts for deployment.
 
 The **SUSE Application Collection extension** in Rancher Desktop adds a dedicated tab in the UI. You browse the catalog, configure values, and install with one click -- the Helm complexity is hidden.
 
-### 4.2 Why Application Collection over Docker Hub?
+### 4.2 Why Application Collection over Public registries?
 
-| | **Docker Hub** | **SUSE Application Collection** |
+| | **Public registries** | **SUSE Application Collection** |
 |---|---|---|
 | **Maintenance** | Community, variable | SUSE, enterprise SLA |
 | **Base OS** | Alpine, Debian, Ubuntu... | SLE BCI (SUSE Linux Enterprise) |
 | **Security patches** | When the maintainer wants | Continuous CVE tracking by SUSE |
-| **Signing** | Optional (Docker Content Trust) | Cosign built-in |
+| **Signing** | Optional | Cosign built-in |
 | **Supply chain** | Variable | SBOM, provenance, attestations, SLSA L3 |
 
 ### 4.3 Authentication
@@ -442,8 +448,6 @@ auth:
 global:
   imagePullSecrets:
   - application-collection
-service:
-  type: NodePort
 ```
 
 **values_yaml/prometheus.yaml:**
@@ -454,9 +458,6 @@ alertmanager:
 global:
   imagePullSecrets:
   - application-collection
-server:
-  service:
-    type: NodePort
 ```
 
 **values_yaml/grafana.yaml:**
@@ -465,8 +466,6 @@ adminPassword: admin
 global:
   imagePullSecrets:
   - application-collection
-service:
-  type: NodePort
 sidecar:
   dashboards:
     enabled: true
