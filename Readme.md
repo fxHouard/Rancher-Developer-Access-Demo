@@ -31,20 +31,17 @@ All three are installed from the **Application Collection** tab in Rancher Deskt
 
 1. Application Collection → search **PostgreSQL** → **Install**
 2. Click "Upload values.yaml" and select `values_yaml/postgresql.yaml`
-2. Click "Upload values.yaml" and select `values_yaml/postgresql.yaml`
 3. Click **Install**
 
 **Prometheus:**
 
 1. Application Collection → search **Prometheus** → **Install**
 2. Click "Upload values.yaml" and select `values_yaml/prometheus.yaml`
-2. Click "Upload values.yaml" and select `values_yaml/prometheus.yaml`
 3. Click **Install**
 
 **Grafana:**
 
 1. Application Collection → search **Grafana** → **Install**
-2. Click "Upload values.yaml" and select `values_yaml/grafana.yaml`
 2. Click "Upload values.yaml" and select `values_yaml/grafana.yaml`
 3. Click **Install**
 
