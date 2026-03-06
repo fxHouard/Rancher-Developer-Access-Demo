@@ -1,40 +1,94 @@
-# Demo Tiltfile
+# ═══════════════════════════════════════════════════════════════════
+# SUSE Application Collection — Demo Tiltfile
+#
+# Deploys a message-wall application using SUSE AppCo images:
+#   • PostgreSQL   — AppCo (installed via UI)
+#   • Prometheus   — AppCo (installed via UI)
+#   • Grafana      — AppCo (installed via UI)
+#   • Keycloak     — AppCo container image (deployed by Tilt)
+#   • Message-Wall — Built on AppCo base image
+#
+# Prerequisites:
+#   Install PostgreSQL, Prometheus, and Grafana via the Application
+#   Collection UI with the values files in values_yaml/.
+#
+# For the CVE comparison demo (shadow mode), see shadow/README.md.
+# ═══════════════════════════════════════════════════════════════════
+
 load('ext://restart_process', 'docker_build_with_restart')
 
 allow_k8s_contexts('rancher-desktop')
 
-# ─── Helpers ────────────────────────────────────────────────────
-def find_service(label_selector, required=False, name='Service'):
-    # Discover a Kubernetes service by label selector.
-    #
-    # Helm charts installed via Rancher Desktop get random release
-    # names (e.g. postgresql-1772033328). Searching by label is
-    # robust regardless of the release name.
+# ─── Helpers ───────────────────────────────────────────────────
+def find_service(label_selector, ns='default', required=False, name='Service'):
+    """Discover a Kubernetes service by label selector in a namespace."""
     svc = str(local(
-        "kubectl get svc -l " + label_selector +
-        " -o jsonpath='{.items[0].metadata.name}'",
+        "kubectl get svc -n " + ns + " -l " + label_selector +
+        " -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ''",
         quiet=True,
     )).strip()
     if required and svc == '':
-        fail(name + ' not found. Install it via Rancher Desktop ' +
-             '(Application Collection).')
+        fail(name + ' not found in namespace ' + ns +
+             '. Install it via the Application Collection UI first.')
     return svc
 
-# ─── Service discovery ──────────────────────────────────────────
-pg_svc = find_service(
+# ═══════════════════════════════════════════════════════════════
+# PHASE 1 — Discover AppCo services (installed manually via UI)
+# ═══════════════════════════════════════════════════════════════
+#
+# Before running `tilt up`, install via the Application Collection:
+#   • PostgreSQL   (with values_yaml/postgresql-appco.yaml)
+#   • Prometheus   (with values_yaml/prometheus-appco.yaml)
+#   • Grafana      (with values_yaml/grafana-appco.yaml)
+# ───────────────────────────────────────────────────────────────
+
+# PostgreSQL (AppCo — shared by message-wall + keycloak)
+pg_appco_svc = find_service(
     'app.kubernetes.io/name=postgresql',
+    ns='default',
     required=True,
-    name='PostgreSQL',
-)
-grafana_svc = find_service('app.kubernetes.io/name=grafana')
-prometheus_svc = find_service(
-    'app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server',
+    name='PostgreSQL (AppCo)',
 )
 
-# ─── Application ────────────────────────────────────────────────
+# Ensure keycloak DB exists in AppCo PostgreSQL
+pg_pod = str(local(
+    "kubectl get pods -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}'",
+    quiet=True,
+)).strip()
+
+local(
+    "kubectl exec " + pg_pod +
+    " -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\"" +
+    " | grep -q 1 || kubectl exec " + pg_pod +
+    " -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak'",
+    quiet=True,
+)
+
+# Prometheus & Grafana (AppCo — optional but recommended)
+prometheus_appco_svc = find_service(
+    'app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server',
+    ns='default',
+)
+grafana_appco_svc = find_service(
+    'app.kubernetes.io/name=grafana',
+    ns='default',
+)
+
+print('──────────────────────────────────────────────')
+print('  AppCo services discovered:')
+print('    PostgreSQL: ' + pg_appco_svc)
+print('    Prometheus: ' + (prometheus_appco_svc or '(not found)'))
+print('    Grafana:    ' + (grafana_appco_svc or '(not found)'))
+print('──────────────────────────────────────────────')
+
+# ═══════════════════════════════════════════════════════════════
+# PHASE 2 — Message Wall app (AppCo variant)
+# ═══════════════════════════════════════════════════════════════
+
 docker_build_with_restart(
-    'message-wall',
+    'message-wall-appco',
     '.',
+    dockerfile='Dockerfile.appco',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     live_update=[
@@ -44,35 +98,74 @@ docker_build_with_restart(
     ],
 )
 
-deployment = str(read_file('k8s/deployment.yaml')).replace(
-    'demo-db-postgresql', pg_svc)
-k8s_yaml([blob(deployment), 'k8s/service.yaml', 'k8s/grafana-dashboard.yaml'])
+# Deploy AppCo message-wall (default namespace)
+deployment_appco = str(read_file('k8s/appco/deployment.yaml')).replace(
+    'PLACEHOLDER_PG_SVC', pg_appco_svc)
+deployment_appco = deployment_appco.replace('namespace: appco\n', '')
+
+service_appco = str(read_file('k8s/appco/service.yaml')).replace(
+    'namespace: appco\n', '')
+
+k8s_yaml([blob(deployment_appco), blob(service_appco)])
 
 k8s_resource(
-    'message-wall',
+    'message-wall-appco',
     port_forwards='3000:3000',
-    labels=['app'],
+    labels=['appco'],
 )
 
-# ─── Monitoring (optional) ──────────────────────────────────────
-if grafana_svc:
+# ═══════════════════════════════════════════════════════════════
+# PHASE 3 — Keycloak (Identity & Access Management)
+#
+# AppCo Keycloak: container image only (no Helm chart on AppCo),
+#   so Tilt deploys it directly using the AppCo container image.
+# ═══════════════════════════════════════════════════════════════
+
+# Keycloak realm ConfigMap (auto-import realm with demo user + message-wall client)
+local('kubectl create configmap keycloak-realm --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml | kubectl apply -f -', quiet=True)
+
+# Keycloak AppCo — deployed by Tilt (no Helm chart available on AppCo)
+keycloak_appco_yaml = str(read_file('k8s/appco/keycloak.yaml')).replace(
+    'PLACEHOLDER_PG_SVC', pg_appco_svc)
+k8s_yaml(blob(keycloak_appco_yaml))
+
+k8s_resource(
+    'keycloak-appco',
+    port_forwards='8080:8080',
+    labels=['appco'],
+)
+
+# Keycloak realm setup via Admin REST API (idempotent)
+local_resource(
+    'keycloak-realm-setup',
+    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 k8s/shared/keycloak-realm.json',
+    labels=['appco'],
+    resource_deps=['keycloak-appco'],
+)
+
+# ═══════════════════════════════════════════════════════════════
+# PHASE 4 — Grafana Dashboard & Port Forwards
+# ═══════════════════════════════════════════════════════════════
+
+# Grafana dashboard for message-wall metrics
+k8s_yaml('k8s/shared/grafana-dashboard.yaml')
+
+if grafana_appco_svc:
     local_resource(
-        'grafana',
-        serve_cmd='kubectl port-forward svc/' + grafana_svc + ' 3001:80',
-        labels=['monitoring'],
+        'grafana-appco-ui',
+        serve_cmd='kubectl port-forward svc/' + grafana_appco_svc + ' 3200:80',
+        labels=['appco'],
         allow_parallel=True,
-        links=['http://localhost:3001',
-               'http://localhost:3001/d/message-wall/'],
+        links=['http://localhost:3200'],
     )
 
-if prometheus_svc:
+if prometheus_appco_svc:
     local_resource(
-        'prometheus',
-        serve_cmd='kubectl port-forward svc/' + prometheus_svc
-                  + ' 9090:80',
-        labels=['monitoring'],
+        'prometheus-appco-ui',
+        serve_cmd='kubectl port-forward svc/' + prometheus_appco_svc + ' 9190:80',
+        labels=['appco'],
         allow_parallel=True,
-        links=['http://localhost:9090'],
+        links=['http://localhost:9190'],
     )
 
     datasource_cm = """apiVersion: v1
@@ -92,14 +185,15 @@ data:
         access: proxy
         isDefault: true
         editable: false
-""".format(svc=prometheus_svc)
-
+""".format(svc=prometheus_appco_svc)
     k8s_yaml(blob(datasource_cm))
 
     k8s_resource(
         objects=['message-wall-dashboard:configmap',
                  'grafana-datasource-prometheus:configmap'],
         new_name='grafana-config',
-        labels=['monitoring'],
-        links=['http://localhost:3001/d/message-wall/'],
+        labels=['appco'],
+        links=[
+            'http://localhost:3200/d/message-wall/',
+        ],
     )

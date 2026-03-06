@@ -38,6 +38,7 @@ It is structured in two parts: first, a **hands-on demo** that gets you running 
 | Local cluster | Rancher Desktop (k3s) | Local Kubernetes + container runtime |
 | Images | SUSE Application Collection | Base images, languages, middleware, tools |
 | Inner loop | Tilt | Auto-build, auto-deploy, hot reload |
+| Authentication | Keycloak | OAuth2 / OpenID Connect identity provider |
 | Observability | Prometheus + Grafana | Application metrics, real-time dashboards |
 | Packaging | Helm / Kustomize | K8s manifest templating |
 | Security | Trivy / Cosign | Vulnerability scanning, image signing |
@@ -70,34 +71,39 @@ Rancher Desktop is an open-source desktop application that provides a **local Ku
 
 ### 3.3 Why dockerd (moby) when production runs containerd?
 
-In production, Kubernetes uses **containerd** (or CRI-O) as runtime. But for local development, **dockerd (moby)** has a decisive advantage:
+In production, Kubernetes uses **containerd** as runtime. Here is the key insight: **so does Rancher Desktop, even in moby mode.** The k3s cluster always runs on containerd, regardless of the setting. Choosing "dockerd (moby)" does not replace containerd -- it adds Docker's daemon alongside it, and the two share the same image store.
+
+This is what gives us the best of both worlds: the same runtime as production, plus Docker's developer-friendly tooling.
 
 ```
-With dockerd (moby) -- what we use:
+Rancher Desktop VM (moby mode):
 +---------------------------------------------+
-| Rancher Desktop VM                          |
 |                                             |
-|   dockerd (moby)                            |
-|   +-- local image store <--------------+    |
-|                                        |    |
-|   k3s (containerd)                     |    |
-|   +-- uses the same image store -------+    |
+|   dockerd (moby)         k3s (containerd)   |
+|   +-- image store <----> image store --+    |
+|       (shared)           (same!)       |    |
 |                                             |
-|   docker build -> local image -> k3s sees it|
+|   docker build -> image appears in both     |
 |   NO PUSH NEEDED!                           |
 +---------------------------------------------+
 
-With containerd alone -- the classic workflow:
+Rancher Desktop VM (containerd mode):
 +---------------------------------------------+
-|   nerdctl build -> image in containerd      |
-|   nerdctl push -> registry                  |
-|   k3s pull <- registry                      |
 |                                             |
+|   nerdctl (containerd)   k3s (containerd)   |
+|   +-- image store        image store --+    |
+|       (separate!)        (separate!)   |    |
+|                                             |
+|   nerdctl build -> push -> pull -> k3s      |
 |   3 steps instead of 1 = slower             |
 +---------------------------------------------+
 ```
 
-Images built by Docker are **immediately visible** to k3s. No registry, no push, no pull. This is what makes the inner loop so fast. This is also why the demo K8s Deployments use `imagePullPolicy: IfNotPresent` (or `Never`): we tell k3s "use the local image, do not look in a registry".
+Images built by Docker are **immediately visible** to k3s because they share the same store. No registry, no push, no pull. This is what makes the inner loop so fast.
+
+> **No compromise on parity.** Your app runs on containerd in both cases. The only difference is the CLI used to build images: `docker` (moby mode) vs `nerdctl` (containerd mode). At runtime, k3s behaves identically.
+
+This is also why the demo K8s Deployments use `imagePullPolicy: IfNotPresent` (or `Never`): we tell k3s "use the local image, do not look in a registry".
 
 ---
 
@@ -110,21 +116,22 @@ Images built by Docker are **immediately visible** to k3s. No registry, no push,
 The registry is `dp.apps.rancher.io`. You will find:
 
 - **Base images (BCI)** -- SUSE Linux Enterprise Base Container Images: minimal, secure foundations.
-- **Language images** -- Node.js, Go, Python, Rust, Java, Ruby, PHP, .NET... with complete toolchains.
-- **Middleware** -- PostgreSQL, Redis, RabbitMQ, Kafka, MongoDB, MariaDB, NGINX, Apache...
+- **Language images** -- Node.js, Go, Rust, Java, Ruby, Clojure... with complete toolchains.
+- **Middleware** -- PostgreSQL, Redis, Kafka, MariaDB, Nats, NGINX, Apache ActiveMQ, Apache Apisix, Apache Tomcat...
 - **Tools** -- Helm, Trivy, Cosign, kubectl, ArgoCD, Prometheus, Grafana...
-- **Helm Charts** -- Ready-to-deploy packages for the entire stack above.
+
+Available in the form of single containers, or, when relevant, full-fledge applications with helm-charts for deployment.
 
 The **SUSE Application Collection extension** in Rancher Desktop adds a dedicated tab in the UI. You browse the catalog, configure values, and install with one click -- the Helm complexity is hidden.
 
-### 4.2 Why Application Collection over Docker Hub?
+### 4.2 Why Application Collection over Public registries?
 
-| | **Docker Hub** | **SUSE Application Collection** |
+| | **Public registries** | **SUSE Application Collection** |
 |---|---|---|
 | **Maintenance** | Community, variable | SUSE, enterprise SLA |
 | **Base OS** | Alpine, Debian, Ubuntu... | SLE BCI (SUSE Linux Enterprise) |
 | **Security patches** | When the maintainer wants | Continuous CVE tracking by SUSE |
-| **Signing** | Optional (Docker Content Trust) | Cosign built-in |
+| **Signing** | Optional | Cosign built-in |
 | **Supply chain** | Variable | SBOM, provenance, attestations, SLSA L3 |
 
 ### 4.3 Authentication
@@ -210,7 +217,7 @@ allow_k8s_contexts('rancher-desktop')
 
 ## 6. The demo: Message Wall with observability
 
-This section walks through the complete demo. It shows the inner loop workflow: a Node.js "message wall" application connected to PostgreSQL, instrumented with Prometheus, and visualized in Grafana. Everything is installed from SUSE Application Collection.
+This section walks through the complete demo. It shows the inner loop workflow: a Node.js "message wall" application connected to PostgreSQL, with Keycloak for authentication, instrumented with Prometheus, and visualized in Grafana. Everything is installed from SUSE Application Collection.
 
 The complete source code is available on GitHub: [fxHouard/Rancher-Developer-Access-Demo](https://github.com/fxHouard/Rancher-Developer-Access-Demo).
 
@@ -221,9 +228,15 @@ Rancher-Developer-Access-Demo/
 +-- src/
 |   +-- server.js               Application (API + UI + Prometheus metrics)
 +-- k8s/
-|   +-- deployment.yaml          Pod spec with Prometheus annotations
-|   +-- service.yaml             ClusterIP service
-|   +-- grafana-dashboard.yaml   8-panel dashboard (auto-provisioned via sidecar)
+|   +-- appco/
+|   |   +-- deployment.yaml     Pod spec with Prometheus annotations
+|   |   +-- service.yaml        ClusterIP service
+|   |   +-- keycloak.yaml       Keycloak Deployment + Service (Application Collection image)
+|   +-- shared/
+|       +-- grafana-dashboard.yaml   8-panel dashboard (auto-provisioned via sidecar)
+|       +-- keycloak-realm.json      Realm config (demo user + OAuth client)
++-- scripts/
+|   +-- setup-keycloak-realm.sh      Keycloak realm import via Admin REST API
 +-- values_yaml/
 |   +-- postgresql.yaml          Helm values for PostgreSQL
 |   +-- prometheus.yaml          Helm values for Prometheus
@@ -442,8 +455,6 @@ auth:
 global:
   imagePullSecrets:
   - application-collection
-service:
-  type: NodePort
 ```
 
 **values_yaml/prometheus.yaml:**
@@ -454,9 +465,6 @@ alertmanager:
 global:
   imagePullSecrets:
   - application-collection
-server:
-  service:
-    type: NodePort
 ```
 
 **values_yaml/grafana.yaml:**
@@ -465,8 +473,6 @@ adminPassword: admin
 global:
   imagePullSecrets:
   - application-collection
-service:
-  type: NodePort
 sidecar:
   dashboards:
     enabled: true
@@ -495,7 +501,66 @@ If you only see `grafana`, go back to the Rancher Desktop UI and verify that bot
 
 > The Helm chart for PostgreSQL automatically creates the user, database, and a service named `<release-name>-postgresql`. The Tiltfile auto-detects this service via the `app.kubernetes.io/name=postgresql` label -- no need to remember the release name.
 
-### 6.7 The Grafana dashboard (auto-provisioned ConfigMap)
+### 6.7 Keycloak: authentication without a Helm chart
+
+Keycloak provides OAuth2 / OpenID Connect authentication for the Message Wall. Users log in, and the app verifies their identity token before allowing them to post or delete messages.
+
+**Why no Helm install?** -- Unlike PostgreSQL, Prometheus, and Grafana, there is no Helm chart for Keycloak on SUSE Application Collection. It is available as a container image only (`dp.apps.rancher.io/containers/keycloak`). This is a realistic scenario: not every application ships a Helm chart, and developers need to know how to deploy raw Kubernetes manifests.
+
+**k8s/appco/keycloak.yaml** (simplified):
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-appco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm
+      containers:
+        - name: keycloak
+          image: dp.apps.rancher.io/containers/keycloak:26.5.4
+          args: ["start-dev", "--health-enabled=true", "--import-realm"]
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://PLACEHOLDER_PG_SVC:5432/keycloak
+            # ... KC_DB_USERNAME, KC_DB_PASSWORD, KEYCLOAK_ADMIN, etc.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+      imagePullSecrets:
+        - name: application-collection
+```
+
+> **Key points:**
+> - **`start-dev` + `--import-realm`** -- Keycloak starts in dev mode (HTTP, no certificate) and automatically imports any JSON realm files found in `/opt/keycloak/data/import`.
+> - **Realm ConfigMap** -- A ConfigMap (`keycloak-realm`) containing the realm JSON is mounted as a volume. This ConfigMap is created by the Tiltfile from `k8s/shared/keycloak-realm.json`.
+> - **`PLACEHOLDER_PG_SVC`** -- The Tiltfile replaces this at deploy time with the actual PostgreSQL service name discovered via label selectors.
+> - **Separate database** -- Keycloak uses a dedicated `keycloak` database in the same PostgreSQL instance. The Tiltfile creates it automatically if it does not exist.
+
+**Realm setup script (`scripts/setup-keycloak-realm.sh`):**
+
+The Tiltfile also runs a setup script via the Admin REST API as a fallback. The script is idempotent: it checks if the realm already exists, gets an admin token, and creates the realm if needed. This handles the case where the ConfigMap import is not picked up (e.g., Keycloak was already running before the ConfigMap was created).
+
+### 6.8 The Grafana dashboard (auto-provisioned ConfigMap)
 
 The Grafana dashboard is defined in a Kubernetes ConfigMap. Thanks to the sidecar enabled in the previous step, it loads automatically -- zero manual import.
 
@@ -536,7 +601,7 @@ The dashboard contains 8 panels:
 
 > **Declarative provisioning** -- The dashboard is in Git, versioned with the code. If you modify it in Grafana (adding panels, changing queries), export it and update the ConfigMap so changes are not lost on the next redeployment. This is the **Infrastructure as Code** approach applied to observability.
 
-### 6.8 The complete Tiltfile
+### 6.9 The complete Tiltfile
 
 ```python
 # Demo Tiltfile
@@ -585,14 +650,48 @@ docker_build_with_restart(
     ],
 )
 
-deployment = str(read_file('k8s/deployment.yaml')).replace(
-    'demo-db-postgresql', pg_svc)
-k8s_yaml([blob(deployment), 'k8s/service.yaml', 'k8s/grafana-dashboard.yaml'])
+deployment = str(read_file('k8s/appco/deployment.yaml')).replace(
+    'PLACEHOLDER_PG_SVC', pg_svc)
+service = str(read_file('k8s/appco/service.yaml'))
+k8s_yaml([blob(deployment), blob(service), 'k8s/shared/grafana-dashboard.yaml'])
 
 k8s_resource(
-    'message-wall',
+    'message-wall-appco',
     port_forwards='3000:3000',
     labels=['app'],
+)
+
+# --- Keycloak (no Helm chart — deployed as raw K8s manifest) ---------
+# Ensure keycloak DB exists in PostgreSQL
+pg_pod = str(local(
+    "kubectl get pods -l app.kubernetes.io/name=postgresql "
+    "-o jsonpath='{.items[0].metadata.name}'", quiet=True)).strip()
+local("kubectl exec " + pg_pod +
+    " -- env PGPASSWORD=demo psql -U demo -tc "
+    "\"SELECT 1 FROM pg_database WHERE datname='keycloak'\""
+    " | grep -q 1 || kubectl exec " + pg_pod +
+    " -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak'",
+    quiet=True)
+
+# Realm ConfigMap (auto-imports realm with demo user + OAuth client)
+local('kubectl create configmap keycloak-realm '
+      '--from-file=message-wall.json=k8s/shared/keycloak-realm.json '
+      '--dry-run=client -o yaml | kubectl apply -f -', quiet=True)
+
+# Deploy Keycloak using the Application Collection container image
+keycloak_yaml = str(read_file('k8s/appco/keycloak.yaml')).replace(
+    'PLACEHOLDER_PG_SVC', pg_svc)
+k8s_yaml(blob(keycloak_yaml))
+
+k8s_resource('keycloak-appco', port_forwards='8080:8080', labels=['app'])
+
+# Realm setup via Admin REST API (idempotent fallback)
+local_resource(
+    'keycloak-realm-setup',
+    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 '
+        'k8s/shared/keycloak-realm.json',
+    labels=['app'],
+    resource_deps=['keycloak-appco'],
 )
 
 # --- Monitoring (optional) -------------------------------------------
@@ -658,9 +757,11 @@ data:
 
 **`objects` + `new_name`** -- ConfigMaps are not workloads (Deployment, StatefulSet...), so Tilt files them under "uncategorized" by default. The `objects` directive groups them under an explicit name (`grafana-config`) with the `monitoring` label.
 
+**Keycloak deployment** -- Since there is no Helm chart for Keycloak on SUSE Application Collection, the Tiltfile deploys it as a raw K8s manifest. It first ensures a `keycloak` database exists in PostgreSQL, creates a ConfigMap with the realm JSON, deploys the Keycloak Deployment (replacing `PLACEHOLDER_PG_SVC` with the discovered service name), and runs a setup script via the Admin REST API as an idempotent fallback.
+
 **Conditionality** -- The monitoring block is conditional (`if grafana_svc` / `if prometheus_svc`). If Prometheus and Grafana are not installed, the Tiltfile still works -- only the app and PostgreSQL are required. Observability is an opt-in bonus.
 
-### 6.9 Running the demo
+### 6.10 Running the demo
 
 ```bash
 # 1. Clone the repo
@@ -688,6 +789,7 @@ tilt up
 
 # 5. From the Tilt dashboard, click the links to:
 #    -> http://localhost:3000   -- The Message Wall app
+#    -> http://localhost:8080   -- Keycloak (admin / admin)
 #    -> http://localhost:9090   -- Prometheus (check targets)
 #    -> http://localhost:3001   -- Grafana (admin / admin)
 
@@ -701,20 +803,25 @@ tilt up
 #    -> save -> ~2 sec -> the color changes
 ```
 
-### 6.10 What happens under the hood
+### 6.11 What happens under the hood
 
 ```
 1. `tilt up` on the host:
    +-- Auto-detects PostgreSQL (label app.kubernetes.io/name=postgresql)
    +-- Auto-detects Prometheus and Grafana (labels app.kubernetes.io/name=...)
+   +-- Creates keycloak DB in PostgreSQL if needed
    +-- docker build message-wall -> image in dockerd local store
    |   +-- k3s sees the image because same store -> imagePullPolicy: IfNotPresent
    +-- kubectl apply deployment + service -> k3s creates the app pod
    |   +-- Pod connects to detected PG service (K8s internal DNS)
    |   +-- Prometheus scrapes the pod (prometheus.io/* annotations)
+   +-- Deploys Keycloak (Application Collection image, raw K8s manifest)
+   |   +-- Imports realm via ConfigMap volume mount
+   |   +-- Runs setup script via Admin REST API (idempotent fallback)
    +-- kubectl apply ConfigMaps (datasource + dashboard)
    |   +-- Grafana sidecars detect and load them
    +-- Port-forward 3000 -> localhost:3000 (app)
+   +-- Port-forward 8080 -> Keycloak
    +-- Port-forward 3001 -> Grafana
    +-- Port-forward 9090 -> Prometheus
 
@@ -730,7 +837,7 @@ tilt up
    +-- Dev sees the impact of their changes in real time
 ```
 
-### 6.11 Port forwarding explained
+### 6.12 Port forwarding explained
 
 Tilt manages port forwarding automatically via `port_forwards` in `k8s_resource()`. It is the equivalent of `kubectl port-forward`, but integrated into Tilt's lifecycle (automatically restarted if the pod is recreated).
 
@@ -760,11 +867,12 @@ From your local machine (for a SQL client for example): `kubectl port-forward sv
 |---|---|---|---|
 | 1 | Write code | VS Code + extensions | Editor, autocomplete, lint, Git |
 | 2 | Iterate (inner loop) | Tilt | Auto-build + live sync + dashboard |
-| 3 | Observe | Prometheus + Grafana | Real-time metrics, auto-provisioned dashboards |
-| 4 | Commit + Push | Git | Source of truth for GitOps |
-| 5 | Build + Scan (outer loop) | CI pipeline + Trivy + Cosign | Vulnerabilities + image signing |
-| 6 | Deploy | Argo CD | Automatic sync Git -> cluster |
-| 7 | Progressive rollout | Argo Rollouts | Canary / Blue-green with analysis |
+| 3 | Authenticate | Keycloak | OAuth2 login, realm auto-provisioned by Tilt |
+| 4 | Observe | Prometheus + Grafana | Real-time metrics, auto-provisioned dashboards |
+| 5 | Commit + Push | Git | Source of truth for GitOps |
+| 6 | Build + Scan (outer loop) | CI pipeline + Trivy + Cosign | Vulnerabilities + image signing |
+| 7 | Deploy | Argo CD | Automatic sync Git -> cluster |
+| 8 | Progressive rollout | Argo Rollouts | Canary / Blue-green with analysis |
 
 ---
 
@@ -981,6 +1089,7 @@ cosign verify --key cosign.pub myregistry/myapp:v1.0
 | **Argo CD** | GitOps continuous deployment tool for Kubernetes |
 | **Argo Rollouts** | Canary and blue-green deployments for Kubernetes |
 | **GitOps** | Paradigm: Git = source of truth for cluster state |
+| **Keycloak** | Open-source identity and access management (OAuth2 / OpenID Connect) |
 | **Prometheus** | Monitoring system that collects metrics via HTTP scraping |
 | **Grafana** | Metrics visualization platform (dashboards) |
 | **prom-client** | Node.js library for exposing Prometheus metrics |
@@ -1006,6 +1115,7 @@ cosign verify --key cosign.pub myregistry/myapp:v1.0
 - **Helm:** [helm.sh](https://helm.sh)
 - **Trivy:** [aquasecurity.github.io/trivy](https://aquasecurity.github.io/trivy)
 - **Cosign:** [docs.sigstore.dev/cosign](https://docs.sigstore.dev/cosign)
+- **Keycloak:** [keycloak.org](https://www.keycloak.org)
 - **Prometheus:** [prometheus.io](https://prometheus.io)
 - **Grafana:** [grafana.com](https://grafana.com)
 - **prom-client (Node.js):** [github.com/siimon/prom-client](https://github.com/siimon/prom-client)

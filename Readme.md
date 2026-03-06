@@ -2,11 +2,11 @@
 
 A small interactive message wall running on Kubernetes, designed to demonstrate a modern developer inner loop with **Rancher Desktop**, **SUSE Application Collection**, and **Tilt**.
 
-Post messages, delete them, change the accent color — and watch everything update in seconds. Metrics are collected by Prometheus and displayed in a Grafana dashboard, auto-provisioned from code.
+Post messages, delete them, change the accent color — and watch everything update in seconds. Metrics are collected by Prometheus and displayed in a Grafana dashboard, auto-provisioned from code. Authentication is handled by Keycloak.
 
 ![Inner Loop and Outer Loop architecture](docs/images/inner-outer-loop.png)
 
-## 1. 🖥️  Install Rancher Desktop
+## 1. 🖥️ Install Rancher Desktop
 
 Download and install from [rancherdesktop.io](https://rancherdesktop.io).
 
@@ -30,19 +30,19 @@ All three are installed from the **Application Collection** tab in Rancher Deskt
 **PostgreSQL:**
 
 1. Application Collection → search **PostgreSQL** → **Install**
-2. Switch to YAML mode and paste the contents of `values_yaml/postgresql.yaml`
+2. Click "Upload values.yaml" and select `values_yaml/postgresql.yaml`
 3. Click **Install**
 
 **Prometheus:**
 
 1. Application Collection → search **Prometheus** → **Install**
-2. Switch to YAML mode and paste the contents of `values_yaml/prometheus.yaml`
+2. Click "Upload values.yaml" and select `values_yaml/prometheus.yaml`
 3. Click **Install**
 
 **Grafana:**
 
 1. Application Collection → search **Grafana** → **Install**
-2. Switch to YAML mode and paste the contents of `values_yaml/grafana.yaml`
+2. Click "Upload values.yaml" and select `values_yaml/grafana.yaml`
 3. Click **Install**
 
 Wait a minute or two for all pods to be ready. You can check progress in the Rancher Desktop **Pods** view or with:
@@ -53,8 +53,11 @@ kubectl get pods
 
 All pods should show `Running`.
 
-## 4. ⚙️ Install Tilt
+**What about Keycloak?**
 
+Keycloak provides OAuth2 authentication for the Message Wall, but there is no Helm chart for it on SUSE Application Collection. Instead, Tilt deploys it automatically as a plain Kubernetes Deployment using the SUSE Application Collection container image (`dp.apps.rancher.io/containers/keycloak`). It stores its data in the same PostgreSQL instance, and Tilt imports a pre-configured realm (demo user + OAuth client) via the Admin REST API — no manual setup needed.
+
+## 4. ⚙️ Install Tilt
 
 **macOS:**
 
@@ -93,6 +96,7 @@ From the Tilt dashboard ([localhost:10350](http://localhost:10350)), you have cl
 | Resource | URL | What |
 |---|---|---|
 | **message-wall** | [localhost:3000](http://localhost:3000) | The Message Wall app |
+| **keycloak** | [localhost:8080](http://localhost:8080) | Keycloak (login: admin / admin) |
 | **grafana** | [localhost:3001](http://localhost:3001) | Grafana (login: admin / admin) |
 | **grafana-config** | [localhost:3001/d/message-wall/](http://localhost:3001/d/message-wall/) | Grafana dashboard (direct link) |
 | **prometheus** | [localhost:9090](http://localhost:9090) | Prometheus |
@@ -110,6 +114,7 @@ The **Tiltfile** orchestrates the developer inner loop:
 - Builds the app image locally (no push — Rancher Desktop shares the image store between dockerd and k3s)
 - Auto-detects PostgreSQL, Prometheus, and Grafana services by Kubernetes labels
 - Deploys the app with dynamic PostgreSQL service name injection
+- Deploys Keycloak from its Application Collection container image and configures the realm automatically
 - Generates a Prometheus datasource ConfigMap so Grafana finds Prometheus automatically
 - Applies the Grafana dashboard ConfigMap (8 panels, auto-provisioned via sidecar)
 - Sets up port-forwards and clickable links for all services
@@ -119,17 +124,23 @@ The **Tiltfile** orchestrates the developer inner loop:
 ```
 .
 ├── src/
-│   └── server.js               Application (API + UI + Prometheus metrics)
+│   └── server.js              Application (API + UI + Prometheus metrics)
 ├── k8s/
-│   ├── deployment.yaml          Pod spec with Prometheus annotations
-│   ├── service.yaml             ClusterIP service
-│   └── grafana-dashboard.yaml   8-panel dashboard (auto-provisioned via sidecar)
+│   ├── appco/
+│   │   ├── deployment.yaml    Pod spec with Prometheus annotations
+│   │   ├── service.yaml       ClusterIP service
+│   │   └── keycloak.yaml      Keycloak Deployment + Service (Application Collection image)
+│   └── shared/
+│       ├── grafana-dashboard.yaml   8-panel dashboard (auto-provisioned)
+│       └── keycloak-realm.json      Realm config (demo user + OAuth client)
+├── scripts/
+│   └── setup-keycloak-realm.sh      Keycloak realm import script
 ├── values_yaml/
-│   ├── postgresql.yaml          Helm values for PostgreSQL
-│   ├── prometheus.yaml          Helm values for Prometheus
-│   └── grafana.yaml             Helm values for Grafana
-├── Dockerfile                   Container image (Application Collection base)
-├── Tiltfile                     Inner loop config (build, deploy, sync, monitoring)
+│   ├── postgresql.yaml        Helm values for PostgreSQL
+│   ├── prometheus.yaml        Helm values for Prometheus
+│   └── grafana.yaml           Helm values for Grafana
+├── Dockerfile                 Container image (Application Collection base)
+├── Tiltfile                   Inner loop config (build, deploy, sync, monitoring)
 └── package.json
 ```
 
@@ -138,3 +149,9 @@ The **Tiltfile** orchestrates the developer inner loop:
 For the full crash course covering the complete Kubernetes developer workflow (Dev Containers, Tilt, mirrord, Testcontainers, Helm, GitOps, security):
 
 👉 **[Developing for Kubernetes with SUSE Rancher Developer Access](docs/developing-for-kubernetes.md)**
+
+---
+
+## 🔍 CVE Comparison (Shadow Mode)
+
+The `shadow/` subfolder contains an extended variant of this demo that deploys the entire stack a second time using public upstream images (Docker Hub, Quay.io), scans both variants with Trivy, and compares CVE counts side-by-side in a dedicated Grafana dashboard. See `shadow/` for details.

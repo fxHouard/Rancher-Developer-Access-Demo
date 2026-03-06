@@ -9,6 +9,12 @@ const PORT = 3000;
 const ACCENT_COLOR = "#747dcd";
 // ─────────────────────────────────────────────
 
+// ─── Keycloak SSO ────────────────────────────
+const KEYCLOAK_PUBLIC_URL = process.env.KEYCLOAK_PUBLIC_URL || '';
+const KEYCLOAK_REALM = 'message-wall';
+const KEYCLOAK_CLIENT_ID = 'message-wall';
+// ─────────────────────────────────────────────
+
 // ─── Prometheus metrics ────────────────────────
 promClient.collectDefaultMetrics();
 
@@ -49,6 +55,8 @@ const html = () => `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>K8s Message Wall</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📬</text></svg>">
+  ${KEYCLOAK_PUBLIC_URL ? '' : ''}
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -241,6 +249,7 @@ const html = () => `<!DOCTYPE html>
       <div class="info-pill"><span class="dot"></span> <span id="pod">—</span></div>
       <div class="info-pill">⏱ Uptime: <span id="uptime">—</span></div>
       <div class="info-pill">💬 <span id="count">0</span> messages</div>
+      ${KEYCLOAK_PUBLIC_URL ? '<div class="info-pill">🔐 <span id="username">…</span> <a id="logout-btn" href="#" style="margin-left:0.4rem;color:#ef4444;text-decoration:none;font-weight:600;display:none" title="Logout">✕</a></div>' : ''}
     </div>
   </header>
 
@@ -349,9 +358,50 @@ const html = () => `<!DOCTYPE html>
       await load();
     }
 
+    // Expose for Keycloak module script
+    window._appLoad = load;
+
+    ${KEYCLOAK_PUBLIC_URL ? '' : `
     load();
     setInterval(load, 3000);
+    `}
   </script>
+  ${KEYCLOAK_PUBLIC_URL ? `
+  <script type="module">
+    // ─── Keycloak SSO (ES module) ────
+    function startApp() {
+      window._appLoad();
+      setInterval(window._appLoad, 3000);
+    }
+    try {
+      const { default: Keycloak } = await import('https://cdn.jsdelivr.net/npm/keycloak-js@26/+esm');
+      const keycloak = new Keycloak({
+        url: '${KEYCLOAK_PUBLIC_URL}',
+        realm: '${KEYCLOAK_REALM}',
+        clientId: '${KEYCLOAK_CLIENT_ID}'
+      });
+      const authenticated = await keycloak.init({ onLoad: 'login-required', checkLoginIframe: false });
+      if (authenticated) {
+        const user = keycloak.tokenParsed.preferred_username || 'user';
+        document.getElementById('username').textContent = user;
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+          logoutBtn.style.display = 'inline';
+          logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            keycloak.logout({ redirectUri: window.location.origin });
+          });
+        }
+      }
+      startApp();
+    } catch(err) {
+      console.warn('Keycloak not available:', err);
+      const el = document.getElementById('username');
+      if (el) el.textContent = '(no auth)';
+      startApp();
+    }
+  </script>
+  ` : ''}
 </body>
 </html>`;
 

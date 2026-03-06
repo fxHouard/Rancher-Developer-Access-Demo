@@ -1,0 +1,27 @@
+# Prometheus (Public prometheus-community variant)
+# Using official Docker Hub image, pinned to match AppCo version (3.10.0)
+
+server:
+  image:
+    repository: prom/prometheus
+    tag: v3.10.0
+  service:
+    type: ClusterIP
+
+alertmanager:
+  service:
+    type: ClusterIP
+
+# Node-exporter — disable hostNetwork to avoid port conflict
+# with AppCo node-exporter (which uses hostNetwork + port 9100).
+# For the CVE demo we only need the image running, not host metrics.
+prometheus-node-exporter:
+  hostNetwork: false
+
+# Disable kube-state-metrics — not part of the CVE comparison
+kube-state-metrics:
+  enabled: false
+
+# Disable pushgateway — not part of the CVE comparison
+pushgateway:
+  enabled: false
