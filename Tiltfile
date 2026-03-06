@@ -37,9 +37,9 @@ def find_service(label_selector, ns='default', required=False, name='Service'):
 # ═══════════════════════════════════════════════════════════════
 #
 # Before running `tilt up`, install via the Application Collection:
-#   • PostgreSQL   (with values_yaml/postgresql-appco.yaml)
-#   • Prometheus   (with values_yaml/prometheus-appco.yaml)
-#   • Grafana      (with values_yaml/grafana-appco.yaml)
+#   • PostgreSQL   (with values_yaml/postgresql.yaml)
+#   • Prometheus   (with values_yaml/prometheus.yaml)
+#   • Grafana      (with values_yaml/grafana.yaml)
 # ───────────────────────────────────────────────────────────────
 
 # PostgreSQL (AppCo — shared by message-wall + keycloak)

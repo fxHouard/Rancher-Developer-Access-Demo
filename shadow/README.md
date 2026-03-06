@@ -52,9 +52,9 @@ The shadow Tiltfile detects the existing AppCo services and reuses them.
 
 If AppCo is not yet deployed, first install via the Application Collection UI:
 
-1. **PostgreSQL** with `../values_yaml/postgresql-appco.yaml`
-2. **Prometheus** with `../values_yaml/prometheus-appco.yaml`
-3. **Grafana** with `../values_yaml/grafana-appco.yaml`
+1. **PostgreSQL** with `../values_yaml/postgresql.yaml`
+2. **Prometheus** with `../values_yaml/prometheus.yaml`
+3. **Grafana** with `../values_yaml/grafana.yaml`
 
 Then:
 

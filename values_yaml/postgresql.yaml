@@ -1,10 +1,11 @@
-# values-dev.yaml — Configuration dev locale
+# PostgreSQL for message-wall (AppCo variant)
 auth:
   database: demo
   postgresPassword: demo
   postgresUsername: demo
   username: demo
   password: demo
+
 global:
   imagePullSecrets:
   - application-collection
