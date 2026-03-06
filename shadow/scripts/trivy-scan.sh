@@ -46,9 +46,9 @@ get_tilt_image() {
 echo ""
 echo "── Discovering images from running pods... ──"
 
-# AppCo (default namespace) — uses prometheus-operator (kube-prometheus-stack)
+# AppCo (default namespace)
 APPCO_PG=$(get_pod_image default "app.kubernetes.io/name=postgresql" "postgresql")
-APPCO_PROM=$(get_pod_image default "app.kubernetes.io/name=prometheus" "prometheus")
+APPCO_PROM=$(get_pod_image default "app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server" "prometheus-server")
 APPCO_ALERT=$(get_pod_image default "app.kubernetes.io/name=alertmanager" "alertmanager")
 APPCO_NODEEXP=$(get_pod_image default "app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
 APPCO_GRAF=$(get_pod_image default "app.kubernetes.io/name=grafana" "grafana")
