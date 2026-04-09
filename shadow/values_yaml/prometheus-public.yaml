@@ -4,7 +4,7 @@
 server:
   image:
     repository: prom/prometheus
-    tag: v3.10.0
+    tag: v3.11.1
   service:
     type: ClusterIP
 

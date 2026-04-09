@@ -23,7 +23,7 @@ spec:
             name: keycloak-realm
       containers:
         - name: keycloak
-          image: dp.apps.rancher.io/containers/keycloak:26.5.4-4.1
+          image: dp.apps.rancher.io/containers/keycloak:26.5.7
           args: ["start-dev", "--health-enabled=true", "--import-realm"]
           ports:
             - containerPort: 8080
