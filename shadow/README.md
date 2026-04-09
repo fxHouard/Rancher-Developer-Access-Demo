@@ -111,4 +111,4 @@ The Grafana CVE comparison dashboard shows:
 | Grafana | `dp.apps.rancher.io/charts/grafana` | `grafana/grafana:12.4.0` |
 | Keycloak | `dp.apps.rancher.io/containers/keycloak` | `quay.io/keycloak/keycloak:26.5.4` |
 | Message-Wall | AppCo Node.js base | `docker.io/library/node:24` |
-| Trivy | `dp.apps.rancher.io/containers/trivy` | `aquasec/trivy:latest` |
+| Trivy | `dp.apps.rancher.io/containers/trivy` | `docker.io/aquasec/trivy` |

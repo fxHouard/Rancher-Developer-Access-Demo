@@ -14,7 +14,7 @@ set -uo pipefail
 RESULTS_FILE="${RESULTS_FILE:-/tmp/cve-results.json}"
 CONFIGMAP_NAME="cve-results"
 JOB_NAME="trivy-scan"
-TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:latest}"
+TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3}"
 
 echo "═══════════════════════════════════════════════════"
 echo "  Trivy Scan — K8s Job"
@@ -66,7 +66,7 @@ PUB_MW=$(get_tilt_image "message-wall-public")
 
 # Trivy itself — AppCo vs public (meta: scanning the scanner!)
 APPCO_TRIVY="dp.apps.rancher.io/containers/trivy:0.69.3-9.1"
-PUB_TRIVY="aquasec/trivy:latest"
+PUB_TRIVY="aquasec/trivy:0.69.3"
 
 echo ""
 echo "  AppCo images:"

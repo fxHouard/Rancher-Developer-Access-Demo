@@ -19,7 +19,7 @@
 #   • Grafana       — AppCo vs docker.io/grafana/grafana:12.4.0
 #   • Keycloak      — AppCo vs quay.io/keycloak/keycloak:26.5.4
 #   • Message-Wall  — AppCo base vs docker.io/library/node:24 base
-#   • Trivy         — AppCo vs aquasec/trivy:latest
+#   • Trivy         — AppCo vs aquasec/trivy
 #
 # CVE Pipeline:  trivy scan → JSON → ConfigMap → exporter → Prometheus → Grafana
 # ═══════════════════════════════════════════════════════════════════
@@ -388,7 +388,7 @@ local_resource(
 
 local_resource(
     'trivy-scan',
-    cmd='TRIVY_IMAGE=aquasec/trivy:latest bash scripts/trivy-scan.sh',
+    cmd='TRIVY_IMAGE=aquasec/trivy:0.69.3 bash scripts/trivy-scan.sh',
     labels=['cve-comparison'],
     resource_deps=['message-wall-appco', 'message-wall-public',
                    'keycloak-appco', 'keycloak-public',
