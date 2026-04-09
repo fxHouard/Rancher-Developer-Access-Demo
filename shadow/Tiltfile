@@ -41,6 +41,41 @@ def find_service(label_selector, ns='default', required=False, name='Service'):
              '. Install it via the Application Collection UI first.')
     return svc
 
+def load_versions(path):
+    """Parse a KEY=VALUE env file (ignores comments and blank lines)."""
+    versions = {}
+    for line in str(read_file(path)).splitlines():
+        line = line.strip()
+        if line == '' or line.startswith('#'):
+            continue
+        if '=' in line:
+            k, v = line.split('=', 1)
+            versions[k.strip()] = v.strip()
+    return versions
+
+# ═══════════════════════════════════════════════════════════════
+# Load pinned public image versions from versions.env
+# ═══════════════════════════════════════════════════════════════
+V = load_versions('versions.env')
+POSTGRES_TAG   = V.get('POSTGRES_TAG',   '18')
+PROMETHEUS_TAG = V.get('PROMETHEUS_TAG',  'v3.11.1')
+GRAFANA_TAG    = V.get('GRAFANA_TAG',    '12.4.2')
+KEYCLOAK_TAG   = V.get('KEYCLOAK_TAG',   '26.5.7')
+NODE_TAG       = V.get('NODE_TAG',       '24')
+TRIVY_TAG      = V.get('TRIVY_TAG',      '0.69.3')
+APPCO_TRIVY_TAG = V.get('APPCO_TRIVY_TAG', TRIVY_TAG)
+
+print('──────────────────────────────────────────────')
+print('  Public image versions (from versions.env):')
+print('    postgres:    ' + POSTGRES_TAG)
+print('    prometheus:  ' + PROMETHEUS_TAG)
+print('    grafana:     ' + GRAFANA_TAG)
+print('    keycloak:    ' + KEYCLOAK_TAG)
+print('    node:        ' + NODE_TAG)
+print('    trivy:       ' + TRIVY_TAG)
+print('    trivy(appco):' + APPCO_TRIVY_TAG)
+print('──────────────────────────────────────────────')
+
 # ═══════════════════════════════════════════════════════════════
 # PHASE 0 — Detect existing AppCo deployment
 #
@@ -124,8 +159,10 @@ local('helm repo add prometheus-community https://prometheus-community.github.io
 local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
 local('helm repo update', quiet=True)
 
-# PostgreSQL (official Docker Hub image postgres:18)
-k8s_yaml('k8s/public/postgresql.yaml')
+# PostgreSQL (official Docker Hub image, tag from versions.env)
+pg_public_yaml = str(read_file('k8s/public/postgresql.yaml')).replace(
+    'PLACEHOLDER_POSTGRES_TAG', POSTGRES_TAG)
+k8s_yaml(blob(pg_public_yaml))
 
 k8s_resource(
     'pg-public-postgresql',
@@ -141,18 +178,18 @@ local_resource(
     resource_deps=['pg-public'],
 )
 
-# Prometheus (official prom/prometheus from Docker Hub, v3.10.0)
+# Prometheus (official prom/prometheus from Docker Hub, tag from versions.env)
 local_resource(
     'prometheus-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f values_yaml/prometheus-public.yaml --wait --cleanup-on-fail --timeout 5m',
+    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f values_yaml/prometheus-public.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
     resource_deps=['pg-public'],
 )
 
-# Grafana (official grafana/grafana from Docker Hub, 12.4.0)
+# Grafana (official grafana/grafana from Docker Hub, tag from versions.env)
 local_resource(
     'grafana-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f values_yaml/grafana-public.yaml --set "grafana\\.ini".auth.login_cookie_name=grafana_public_session --wait --cleanup-on-fail --timeout 5m',
+    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f values_yaml/grafana-public.yaml --set image.tag=' + GRAFANA_TAG + ' --set "grafana\\.ini".auth.login_cookie_name=grafana_public_session --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
     resource_deps=['pg-public'],
 )
@@ -183,6 +220,7 @@ docker_build_with_restart(
     dockerfile='Dockerfile.public',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
+    build_args={'NODE_TAG': NODE_TAG},
     live_update=[
         sync('../src', '/app/src'),
         run('cd /app && npm install --no-package-lock',
@@ -237,8 +275,10 @@ k8s_yaml(blob(str(keycloak_realm_cm_public)))
 k8s_resource(objects=['keycloak-realm-public:configmap:public'], new_name='keycloak-realm-cm-public', labels=['public'])
 
 # Keycloak AppCo — deployed by Tilt (no Helm chart available on AppCo)
+# Tag from versions.env — keeps AppCo and Public keycloak aligned
 keycloak_appco_yaml = str(read_file('../k8s/appco/keycloak.yaml')).replace(
-    'PLACEHOLDER_PG_SVC', pg_appco_svc)
+    'PLACEHOLDER_PG_SVC', pg_appco_svc).replace(
+    'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG)
 k8s_yaml(blob(keycloak_appco_yaml))
 
 k8s_resource(
@@ -247,8 +287,10 @@ k8s_resource(
     labels=['appco'],
 )
 
-# Keycloak Public (deployed by Tilt, upstream image)
-k8s_yaml('k8s/public/keycloak.yaml')
+# Keycloak Public (deployed by Tilt, upstream image, tag from versions.env)
+keycloak_public_yaml = str(read_file('k8s/public/keycloak.yaml')).replace(
+    'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG)
+k8s_yaml(blob(keycloak_public_yaml))
 
 k8s_resource(
     'keycloak-public',
@@ -258,11 +300,20 @@ k8s_resource(
 )
 
 # Keycloak realm setup via Admin REST API (idempotent)
+# Split into two independent resources so AppCo realm setup doesn't
+# wait for the entire Public stack (pg-public → keycloak-public).
 local_resource(
-    'keycloak-realm-setup',
-    cmd='bash ../scripts/setup-keycloak-realm.sh http://localhost:8080 ../k8s/shared/keycloak-realm.json && bash ../scripts/setup-keycloak-realm.sh http://localhost:8180 ../k8s/shared/keycloak-realm.json',
+    'keycloak-realm-setup-appco',
+    cmd='bash ../scripts/setup-keycloak-realm.sh http://localhost:8080 ../k8s/shared/keycloak-realm.json',
     labels=['appco'],
-    resource_deps=['keycloak-appco', 'keycloak-public'],
+    resource_deps=['keycloak-appco'],
+)
+
+local_resource(
+    'keycloak-realm-setup-public',
+    cmd='bash ../scripts/setup-keycloak-realm.sh http://localhost:8180 ../k8s/shared/keycloak-realm.json',
+    labels=['public'],
+    resource_deps=['keycloak-public'],
 )
 
 # ═══════════════════════════════════════════════════════════════
@@ -388,11 +439,17 @@ local_resource(
 
 local_resource(
     'trivy-scan',
-    cmd='TRIVY_IMAGE=aquasec/trivy:0.69.3 bash scripts/trivy-scan.sh',
+    cmd='TRIVY_IMAGE=aquasec/trivy:' + TRIVY_TAG + ' APPCO_TRIVY_TAG=' + APPCO_TRIVY_TAG + ' bash scripts/trivy-scan.sh',
     labels=['cve-comparison'],
     resource_deps=['message-wall-appco', 'message-wall-public',
                    'keycloak-appco', 'keycloak-public',
                    'pg-public', 'prometheus-public', 'grafana-public'],
 )
 
-# cve-report is now merged into cve-exporter (/report endpoint + stdout)
+# Restart cve-exporter after each trivy-scan so it picks up the new ConfigMap
+local_resource(
+    'cve-exporter-reload',
+    cmd='kubectl rollout restart deployment/cve-exporter && kubectl rollout status deployment/cve-exporter --timeout=60s',
+    labels=['cve-comparison'],
+    resource_deps=['trivy-scan', 'cve-exporter'],
+)

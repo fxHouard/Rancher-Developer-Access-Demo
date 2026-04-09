@@ -65,8 +65,10 @@ PUB_KC=$(get_pod_image public "app=keycloak,variant=public" "keycloak")
 PUB_MW=$(get_tilt_image "message-wall-public")
 
 # Trivy itself — AppCo vs public (meta: scanning the scanner!)
-APPCO_TRIVY="dp.apps.rancher.io/containers/trivy:0.69.3-9.1"
-PUB_TRIVY="aquasec/trivy:0.69.3"
+# APPCO_TRIVY_TAG comes from versions.env (includes SUSE patch suffix)
+# Public trivy = the same image used to run this scan
+APPCO_TRIVY="dp.apps.rancher.io/containers/trivy:${APPCO_TRIVY_TAG:-${TRIVY_IMAGE#*:}}"
+PUB_TRIVY="${TRIVY_IMAGE}"
 
 echo ""
 echo "  AppCo images:"

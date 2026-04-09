@@ -32,6 +32,22 @@ def find_service(label_selector, ns='default', required=False, name='Service'):
              '. Install it via the Application Collection UI first.')
     return svc
 
+def load_versions(path):
+    """Parse a KEY=VALUE env file (ignores comments and blank lines)."""
+    versions = {}
+    for line in str(read_file(path)).splitlines():
+        line = line.strip()
+        if line == '' or line.startswith('#'):
+            continue
+        if '=' in line:
+            k, v = line.split('=', 1)
+            versions[k.strip()] = v.strip()
+    return versions
+
+# Keycloak tag from shadow/versions.env (single source of truth)
+V = load_versions('shadow/versions.env')
+KEYCLOAK_TAG = V.get('KEYCLOAK_TAG', '26.5.7')
+
 # ═══════════════════════════════════════════════════════════════
 # PHASE 1 — Discover AppCo services (installed manually via UI)
 # ═══════════════════════════════════════════════════════════════
@@ -125,8 +141,10 @@ k8s_resource(
 local('kubectl create configmap keycloak-realm --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml | kubectl apply -f -', quiet=True)
 
 # Keycloak AppCo — deployed by Tilt (no Helm chart available on AppCo)
+# Tag from shadow/versions.env (single source of truth for keycloak version)
 keycloak_appco_yaml = str(read_file('k8s/appco/keycloak.yaml')).replace(
-    'PLACEHOLDER_PG_SVC', pg_appco_svc)
+    'PLACEHOLDER_PG_SVC', pg_appco_svc).replace(
+    'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG)
 k8s_yaml(blob(keycloak_appco_yaml))
 
 k8s_resource(
