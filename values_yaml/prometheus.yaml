@@ -1,5 +1,6 @@
 # Prometheus (AppCo variant)
 alertmanager:
+  enabled: false
   service:
     type: NodePort
 

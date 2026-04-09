@@ -9,6 +9,7 @@ server:
     type: ClusterIP
 
 alertmanager:
+  enabled: false
   service:
     type: ClusterIP
 
