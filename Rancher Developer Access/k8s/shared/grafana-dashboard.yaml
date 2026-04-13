@@ -9,7 +9,7 @@ data:
       {
       "id": null,
       "uid": "message-wall",
-      "title": "Message Wall",
+      "title": "Message Wall — AppCo",
       "tags": ["app", "demo"],
       "timezone": "browser",
       "refresh": "5s",
@@ -26,7 +26,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "max(app_messages_count{app=\"message-wall\"})",
+            "expr": "max(app_messages_count{app=\"message-wall-appco\"})",
             "legendFormat": "messages"
           }],
           "fieldConfig": {
@@ -51,7 +51,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "max(app_messages_posted_total{app=\"message-wall\"})",
+            "expr": "max(app_messages_posted_total{app=\"message-wall-appco\"})",
             "legendFormat": "posted"
           }],
           "fieldConfig": {
@@ -69,7 +69,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "max(app_messages_deleted_total{app=\"message-wall\"})",
+            "expr": "max(app_messages_deleted_total{app=\"message-wall-appco\"})",
             "legendFormat": "deletes"
           }],
           "fieldConfig": {
@@ -87,7 +87,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "rate(app_http_request_duration_seconds_count{app=\"message-wall\"}[5m])",
+            "expr": "rate(app_http_request_duration_seconds_count{app=\"message-wall-appco\"}[5m])",
             "legendFormat": "{{method}} {{path}}"
           }],
           "fieldConfig": {
@@ -103,7 +103,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "rate(app_messages_posted_total{app=\"message-wall\"}[5m]) * 60",
+            "expr": "rate(app_messages_posted_total{app=\"message-wall-appco\"}[5m]) * 60",
             "legendFormat": "posts/min"
           }],
           "fieldConfig": {
@@ -122,7 +122,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "histogram_quantile(0.95, rate(app_http_request_duration_seconds_bucket{app=\"message-wall\"}[5m]))",
+            "expr": "histogram_quantile(0.95, rate(app_http_request_duration_seconds_bucket{app=\"message-wall-appco\"}[5m]))",
             "legendFormat": "p95 {{method}} {{path}}"
           }],
           "fieldConfig": {
@@ -139,12 +139,12 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "process_resident_memory_bytes{app=\"message-wall\"}",
+              "expr": "process_resident_memory_bytes{app=\"message-wall-appco\"}",
               "legendFormat": "RSS"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "nodejs_heap_size_used_bytes{app=\"message-wall\"}",
+              "expr": "nodejs_heap_size_used_bytes{app=\"message-wall-appco\"}",
               "legendFormat": "Heap used"
             }
           ],
@@ -161,7 +161,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [{
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "expr": "nodejs_eventloop_lag_p99_seconds{app=\"message-wall\"}",
+            "expr": "nodejs_eventloop_lag_p99_seconds{app=\"message-wall-appco\"}",
             "legendFormat": "p99 lag"
           }],
           "fieldConfig": {

@@ -1,4 +1,4 @@
-# Shadow CVE Comparison — AppCo vs Public Images
+# Rancher Developer Access — CVE Comparison (AppCo vs Public Images)
 
 Extended demo that deploys the same application stack **twice** — once with SUSE Application Collection images, once with popular public upstream images — then scans everything with Trivy to compare CVE counts side by side in a Grafana dashboard.
 
@@ -42,24 +42,24 @@ Extended demo that deploys the same application stack **twice** — once with SU
 If you already ran `tilt up` from the parent directory:
 
 ```bash
-cd shadow
+cd "Rancher Developer Access"
 tilt up
 ```
 
-The shadow Tiltfile detects the existing AppCo services and reuses them.
+This Tiltfile detects the existing AppCo services and reuses them.
 
 ### Option B — Fresh start
 
 If AppCo is not yet deployed, first install via the Application Collection UI:
 
-1. **PostgreSQL** with `../values_yaml/postgresql.yaml`
-2. **Prometheus** with `../values_yaml/prometheus.yaml`
-3. **Grafana** with `../values_yaml/grafana.yaml`
+1. **PostgreSQL** with `values_yaml/postgresql.yaml`
+2. **Prometheus** with `values_yaml/prometheus.yaml`
+3. **Grafana** with `values_yaml/grafana.yaml`
 
 Then:
 
 ```bash
-cd shadow
+cd "Rancher Developer Access"
 tilt up
 ```
 
