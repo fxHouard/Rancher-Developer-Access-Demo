@@ -1,8 +1,8 @@
 # Prometheus (AppCo variant)
+
+# Alertmanager is not used by this demo
 alertmanager:
   enabled: false
-  service:
-    type: NodePort
 
 # Disable kube-state-metrics — not part of the CVE comparison
 kubeStateMetrics:
