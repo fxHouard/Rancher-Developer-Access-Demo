@@ -15,10 +15,15 @@ RESULTS_FILE="${RESULTS_FILE:-/tmp/cve-results.json}"
 CONFIGMAP_NAME="cve-results"
 JOB_NAME="trivy-scan"
 TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3}"
+# Scanner pod itself runs the AppCo trivy image (cluster purity: no
+# non-AppCo images land on the cluster except the public-demo workloads).
+# TRIVY_IMAGE above is kept as the *scanned* public reference.
+SCANNER_IMAGE="${SCANNER_IMAGE:-dp.apps.rancher.io/containers/trivy:${APPCO_TRIVY_TAG:-0.69.3-9.1}}"
 
 echo "═══════════════════════════════════════════════════"
 echo "  Trivy Scan — K8s Job"
-echo "  Scanner: $TRIVY_IMAGE"
+echo "  Scanner: $SCANNER_IMAGE"
+echo "  (Public trivy scanned: $TRIVY_IMAGE)"
 echo "  Components: postgresql, prometheus, alertmanager,"
 echo "    node-exporter, grafana, message-wall, keycloak, trivy"
 echo "═══════════════════════════════════════════════════"
@@ -121,9 +126,17 @@ kubectl create configmap trivy-scan-script --dry-run=client -o yaml \
 
 echo "=== Trivy scan starting ==="
 
-# Install jq (Alpine-based image)
+# Install jq (works on Alpine-based aquasec image AND SLE BCI AppCo image)
 echo "Installing jq..."
-apk add --no-cache jq >/dev/null 2>&1 || true
+if command -v jq >/dev/null 2>&1; then
+    echo "  jq already present."
+elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache jq >/dev/null 2>&1 || true
+elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive --quiet install jq >/dev/null 2>&1 || true
+elif command -v microdnf >/dev/null 2>&1; then
+    microdnf install -y jq >/dev/null 2>&1 || true
+fi
 
 echo "Downloading vulnerability databases..."
 trivy image --download-db-only 2>&1 | tail -5
@@ -234,7 +247,7 @@ spec:
     spec:
       containers:
       - name: trivy
-        image: ${TRIVY_IMAGE}
+        image: ${SCANNER_IMAGE}
         command: ["/bin/sh", "/config/scan.sh"]
         volumeMounts:
         - name: scan-config
