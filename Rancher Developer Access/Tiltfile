@@ -11,10 +11,9 @@
 # Usage:
 #   cd "Rancher Developer Access" && tilt up
 #
-# Components (8 apps × 2 variants = 16 images scanned):
+# Components (7 apps × 2 variants = 14 images scanned):
 #   • PostgreSQL    — AppCo vs docker.io/library/postgres:18
 #   • Prometheus    — AppCo vs docker.io/prom/prometheus:v3.10.0
-#   • Alertmanager  — AppCo vs upstream
 #   • Node-Exporter — AppCo vs upstream
 #   • Grafana       — AppCo vs docker.io/grafana/grafana:12.4.0
 #   • Keycloak      — AppCo vs quay.io/keycloak/keycloak:26.5.4

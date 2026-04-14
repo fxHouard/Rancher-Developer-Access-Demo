@@ -9,10 +9,9 @@ server:
   service:
     type: ClusterIP
 
+# Alertmanager is not used by this demo
 alertmanager:
   enabled: false
-  service:
-    type: ClusterIP
 
 # Node-exporter — disable hostNetwork to avoid port conflict
 # with AppCo node-exporter (which uses hostNetwork + port 9100).
