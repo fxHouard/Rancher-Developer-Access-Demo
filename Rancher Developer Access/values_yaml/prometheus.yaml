@@ -8,6 +8,9 @@ alertmanager:
 kubeStateMetrics:
   enabled: false
 
+image: 
+  tag: "3.11.2-1.4"
+  
 global:
   imagePullSecrets:
   - application-collection

@@ -1,6 +1,8 @@
 # Grafana (AppCo variant)
 adminPassword: demo
-
+image:
+  tag: "12.4.2"
+  
 global:
   imagePullSecrets:
   - application-collection

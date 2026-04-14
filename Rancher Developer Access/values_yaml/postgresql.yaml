@@ -5,6 +5,8 @@ auth:
   postgresUsername: demo
   username: demo
   password: demo
+image:
+  tag: "18.3-7.4"
 
 global:
   imagePullSecrets:
