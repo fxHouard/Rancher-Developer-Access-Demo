@@ -57,10 +57,10 @@ APPCO_MW=$(get_tilt_image "message-wall-appco")
 
 # Public (public namespace) — uses prometheus-community/prometheus chart
 PUB_PG=$(get_pod_image public "app.kubernetes.io/name=postgresql" "postgresql")
-PUB_PROM=$(get_pod_image public "app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server" "prometheus-server")
-PUB_ALERT=$(get_pod_image public "app.kubernetes.io/name=alertmanager" "alertmanager")
-PUB_NODEEXP=$(get_pod_image public "app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
-PUB_GRAF=$(get_pod_image public "app.kubernetes.io/name=grafana" "grafana")
+PUB_PROM=$(get_pod_image public "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/component=server" "prometheus-server")
+PUB_ALERT=$(get_pod_image public "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/name=alertmanager" "alertmanager")
+PUB_NODEEXP=$(get_pod_image public "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
+PUB_GRAF=$(get_pod_image public "app.kubernetes.io/instance=grafana-public" "grafana")
 PUB_KC=$(get_pod_image public "app=keycloak,variant=public" "keycloak")
 PUB_MW=$(get_tilt_image "message-wall-public")
 

@@ -21,6 +21,19 @@ spec:
         - name: realm-config
           configMap:
             name: keycloak-realm
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h PLACEHOLDER_PG_SVC -U demo; do
+                echo "waiting for postgres..."; sleep 2
+              done
+              PGPASSWORD=demo psql -h PLACEHOLDER_PG_SVC -U demo -tc \
+                "SELECT 1 FROM pg_database WHERE datname='keycloak'" | grep -q 1 \
+              || PGPASSWORD=demo psql -h PLACEHOLDER_PG_SVC -U demo -c "CREATE DATABASE keycloak"
       containers:
         - name: keycloak
           image: dp.apps.rancher.io/containers/keycloak:PLACEHOLDER_KEYCLOAK_TAG
@@ -50,6 +63,12 @@ spec:
               value: admin
             - name: KEYCLOAK_ADMIN_PASSWORD
               value: admin
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health/ready

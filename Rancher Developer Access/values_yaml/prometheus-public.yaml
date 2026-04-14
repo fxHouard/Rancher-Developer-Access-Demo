@@ -3,6 +3,7 @@
 
 server:
   image:
+    registry: docker.io
     repository: prom/prometheus
     tag: v3.11.1
   service:
@@ -18,6 +19,9 @@ alertmanager:
 # For the CVE demo we only need the image running, not host metrics.
 prometheus-node-exporter:
   hostNetwork: false
+  image:
+    registry: docker.io
+    repository: prom/node-exporter
 
 # Disable kube-state-metrics — not part of the CVE comparison
 kube-state-metrics:
