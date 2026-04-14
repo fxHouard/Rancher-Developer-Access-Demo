@@ -6,7 +6,7 @@
 # scan Job that accesses the container runtime via hostPath.
 # Results are saved to a ConfigMap for the CVE exporter.
 #
-# Components: postgresql, prometheus, alertmanager, node-exporter,
+# Components: postgresql, prometheus, node-exporter,
 #             grafana, message-wall, keycloak, trivy
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
@@ -19,7 +19,7 @@ TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3}"
 echo "═══════════════════════════════════════════════════"
 echo "  Trivy Scan — Public Images"
 echo "  Scanner: $TRIVY_IMAGE"
-echo "  Components: postgresql, prometheus, alertmanager,"
+echo "  Components: postgresql, prometheus, "
 echo "    node-exporter, grafana, message-wall, keycloak, trivy"
 echo "═══════════════════════════════════════════════════"
 
@@ -49,7 +49,6 @@ echo "── Discovering images from running pods... ──"
 # Public images (default namespace)
 PUB_PG=$(get_pod_image default "app.kubernetes.io/name=postgresql" "postgresql")
 PUB_PROM=$(get_pod_image default "app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server" "prometheus-server")
-PUB_ALERT=$(get_pod_image default "app.kubernetes.io/name=alertmanager" "alertmanager")
 PUB_NODEEXP=$(get_pod_image default "app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
 PUB_GRAF=$(get_pod_image default "app.kubernetes.io/name=grafana" "grafana")
 PUB_KC=$(get_pod_image default "app=keycloak,variant=public" "keycloak")
@@ -60,7 +59,6 @@ echo ""
 echo "  Images to scan:"
 echo "    postgresql:    ${PUB_PG:-unknown}"
 echo "    prometheus:    ${PUB_PROM:-unknown}"
-echo "    alertmanager:  ${PUB_ALERT:-unknown}"
 echo "    node-exporter: ${PUB_NODEEXP:-unknown}"
 echo "    grafana:       ${PUB_GRAF:-unknown}"
 echo "    keycloak:      ${PUB_KC:-unknown}"
@@ -71,11 +69,10 @@ echo "    trivy:         ${PUB_TRIVY}"
 # Format: project|application|name|image|base_image (one per line)
 IMAGE_LIST="public-images|postgresql|postgresql|${PUB_PG}|
 public-images|prometheus|prometheus|${PUB_PROM}|
-public-images|prometheus|alertmanager|${PUB_ALERT}|
 public-images|prometheus|node-exporter|${PUB_NODEEXP}|
 public-images|grafana|grafana|${PUB_GRAF}|
 public-images|trivy|trivy|${PUB_TRIVY}|
-public-images|keycloak|keycloak|${PUB_KC}|
+public-images|keycloak|keycloak|${PUB_KC}|F
 public-images|message-wall|message-wall|${PUB_MW}|node:24
 "
 
