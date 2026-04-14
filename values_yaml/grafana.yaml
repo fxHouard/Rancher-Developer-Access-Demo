@@ -1,6 +1,7 @@
 # Grafana (Public grafana/grafana variant)
 # Pinned to 12.4.2 to match AppCo version
 image:
+  registry: docker.io
   repository: grafana/grafana
   tag: "12.4.2"
 
