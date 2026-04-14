@@ -23,7 +23,7 @@ spec:
             name: keycloak-realm
       initContainers:
         - name: wait-for-postgres
-          image: dp.apps.rancher.io/containers/postgresql:17
+          image: dp.apps.rancher.io/containers/postgresql:18.3-7.4
           command:
             - sh
             - -c
