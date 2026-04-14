@@ -206,10 +206,10 @@ def find_service(label_selector, ns='default'):
     return svc
 
 prometheus_svc = find_service(
-    'app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server',
+    'app.kubernetes.io/instance=prometheus,app.kubernetes.io/component=server',
 )
 grafana_svc = find_service(
-    'app.kubernetes.io/name=grafana',
+    'app.kubernetes.io/instance=grafana',
 )
 
 if grafana_svc:
