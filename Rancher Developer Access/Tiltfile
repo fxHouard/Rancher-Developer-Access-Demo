@@ -41,6 +41,29 @@ def find_service(label_selector, ns='default', required=False, name='Service'):
              '. Install it via the Application Collection UI first.')
     return svc
 
+def render_public(path):
+    """Read a k8s yaml from the root public-images demo and rewrite it
+    for the `public` namespace with -public-suffixed resource names, so
+    the public variant can run alongside an AppCo install that occupies
+    the unsuffixed names in `default`. Keeping the root YAML as the
+    single source of truth avoids drift between the two demos."""
+    y = str(read_file('../k8s/' + path))
+    # Inject `namespace: public` right after each top-level `metadata:` block
+    y = y.replace('metadata:\n  name: ', 'metadata:\n  namespace: public\n  name: ')
+    # Rename top-level resources (match 2-space indent = metadata only, never container names)
+    y = y.replace('  name: demo-postgresql\n', '  name: pg-public-postgresql\n')
+    y = y.replace('  name: message-wall\n',    '  name: message-wall-public\n')
+    y = y.replace('  name: keycloak\n',        '  name: keycloak-public\n')
+    # Remaining host / configmap / URL references
+    y = y.replace('demo-postgresql',           'pg-public-postgresql')
+    y = y.replace('keycloak-realm',            'keycloak-realm-public')
+    y = y.replace('app: message-wall\n',       'app: message-wall-public\n')
+    y = y.replace('image: message-wall\n',     'image: message-wall-public\n')
+    y = y.replace('http://keycloak:8080',      'http://keycloak-public:8080')
+    # Public Keycloak is port-forwarded on 8180 (AppCo owns 8080)
+    y = y.replace('http://localhost:8080',     'http://localhost:8180')
+    return y
+
 def load_versions(path):
     """Parse a KEY=VALUE env file (ignores comments and blank lines)."""
     versions = {}
@@ -160,7 +183,7 @@ local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null |
 local('helm repo update', quiet=True)
 
 # PostgreSQL (official Docker Hub image, tag from versions.env)
-pg_public_yaml = str(read_file('k8s/public/postgresql.yaml')).replace(
+pg_public_yaml = render_public('postgresql.yaml').replace(
     'PLACEHOLDER_POSTGRES_TAG', POSTGRES_TAG)
 k8s_yaml(blob(pg_public_yaml))
 
@@ -181,7 +204,7 @@ local_resource(
 # Prometheus (official prom/prometheus from Docker Hub, tag from versions.env)
 local_resource(
     'prometheus-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f values_yaml/prometheus-public.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
+    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f ../values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
     resource_deps=['pg-public'],
 )
@@ -189,7 +212,7 @@ local_resource(
 # Grafana (official grafana/grafana from Docker Hub, tag from versions.env)
 local_resource(
     'grafana-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f values_yaml/grafana-public.yaml --set image.tag=' + GRAFANA_TAG + ' --set "grafana\\.ini".auth.login_cookie_name=grafana_public_session --wait --cleanup-on-fail --timeout 5m',
+    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f ../values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set "grafana\\.ini".auth.login_cookie_name=grafana_public_session --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
     resource_deps=['pg-public'],
 )
@@ -245,9 +268,10 @@ k8s_resource(
 )
 
 # Deploy Public message-wall (public namespace)
-deployment_public = str(read_file('k8s/public/deployment.yaml')).replace(
+deployment_public = render_public('deployment.yaml').replace(
     'PLACEHOLDER_PG_SVC', 'pg-public-postgresql')
-k8s_yaml([blob(deployment_public), 'k8s/public/service.yaml'])
+service_public = render_public('service.yaml')
+k8s_yaml([blob(deployment_public), blob(service_public)])
 
 k8s_resource(
     'message-wall-public',
@@ -288,7 +312,7 @@ k8s_resource(
 )
 
 # Keycloak Public (deployed by Tilt, upstream image, tag from versions.env)
-keycloak_public_yaml = str(read_file('k8s/public/keycloak.yaml')).replace(
+keycloak_public_yaml = render_public('keycloak.yaml').replace(
     'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG)
 k8s_yaml(blob(keycloak_public_yaml))
 
