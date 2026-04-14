@@ -119,18 +119,7 @@ kubectl create configmap trivy-scan-script --dry-run=client -o yaml \
 # NOTE: no "set -e" — we want to continue even if one scan fails
 
 echo "=== Trivy scan starting ==="
-
-# Install jq (works on Alpine-based aquasec image AND SLE BCI AppCo image)
-echo "Installing jq..."
-if command -v jq >/dev/null 2>&1; then
-    echo "  jq already present."
-elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache jq >/dev/null 2>&1 || true
-elif command -v zypper >/dev/null 2>&1; then
-    zypper --non-interactive --quiet install jq >/dev/null 2>&1 || true
-elif command -v microdnf >/dev/null 2>&1; then
-    microdnf install -y jq >/dev/null 2>&1 || true
-fi
+echo "Tools present: $(command -v grep >/dev/null && echo grep) $(command -v wc >/dev/null && echo wc) $(command -v jq >/dev/null && echo jq)"
 
 echo "Downloading vulnerability databases..."
 trivy image --download-db-only 2>&1 | tail -5
@@ -172,33 +161,24 @@ while IFS="|" read -r project application name image base_image; do
         raw=$(cat "$SCAN_JSON")
     fi
 
-    # Try to parse with jq, fall back to error entry
+    # Parse by counting severity occurrences in the JSON. No jq needed:
+    # grep is present in both the Alpine aquasec image and the SLE BCI
+    # AppCo image. The JSON is emitted by trivy with a predictable shape.
     entry=""
-    if [ -n "$raw" ]; then
-        entry=$(echo "$raw" | jq -c --arg proj "$project" --arg app "$application" --arg repo "$name" --arg img "$image" --arg base "${base_image:-}" \
-            '"'"'{
-                project: $proj,
-                application: $app,
-                repository: $repo,
-                image: $img,
-                base_image: $base,
-                base_os: (([.Results[]? | select(.Class == "os-pkgs") | .Target | capture("\\((?<os>[^)]+)\\)$").os // .] | first) // ""),
-                Critical: ([.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length),
-                High:     ([.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length),
-                Medium:   ([.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length),
-                Low:      ([.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length),
-                Total:    ([.Results[]?.Vulnerabilities[]?] | length),
-                status: "success"
-            }'"'"' 2>/dev/null)
-    fi
-
-    # Fallback if jq parsing failed
-    if [ -z "$entry" ] || [ "$entry" = "null" ]; then
-        entry="{\"project\":\"$project\",\"application\":\"$application\",\"repository\":\"$name\",\"image\":\"$image\",\"base_image\":\"${base_image:-}\",\"base_os\":\"\",\"Critical\":0,\"High\":0,\"Medium\":0,\"Low\":0,\"Total\":0,\"status\":\"error\"}"
-        echo "     Using error fallback entry"
+    if [ -s "$SCAN_JSON" ]; then
+        critical=$(grep -c "\"Severity\": \"CRITICAL\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        high=$(grep -c "\"Severity\": \"HIGH\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        medium=$(grep -c "\"Severity\": \"MEDIUM\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        low=$(grep -c "\"Severity\": \"LOW\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        total=$((critical + high + medium + low))
+        # base_os: capture text inside the first "Target": "... (xxx)" line
+        base_os=$(grep -m1 -o "\"Target\": \"[^\"]*([^)]*)\"" "$SCAN_JSON" 2>/dev/null \
+                  | sed -n "s/.*(\\([^)]*\\)).*/\\1/p" || true)
+        entry="{\"project\":\"$project\",\"application\":\"$application\",\"repository\":\"$name\",\"image\":\"$image\",\"base_image\":\"${base_image:-}\",\"base_os\":\"${base_os:-}\",\"Critical\":$critical,\"High\":$high,\"Medium\":$medium,\"Low\":$low,\"Total\":$total,\"status\":\"success\"}"
+        echo "     Found $total CVEs (C:$critical H:$high M:$medium L:$low)"
     else
-        total=$(echo "$entry" | jq -r .Total 2>/dev/null || echo "?")
-        echo "     Found $total CVEs"
+        entry="{\"project\":\"$project\",\"application\":\"$application\",\"repository\":\"$name\",\"image\":\"$image\",\"base_image\":\"${base_image:-}\",\"base_os\":\"\",\"Critical\":0,\"High\":0,\"Medium\":0,\"Low\":0,\"Total\":0,\"status\":\"error\"}"
+        echo "     Using error fallback entry (empty scan output)"
     fi
 
     if [ "$first" = true ]; then
@@ -214,7 +194,7 @@ echo "]" >> "$RESULTS_FILE"
 
 echo ""
 echo "=== SCAN_RESULTS_JSON_START ==="
-cat "$RESULTS_FILE" | jq . 2>/dev/null || cat "$RESULTS_FILE"
+cat "$RESULTS_FILE"
 echo "=== SCAN_RESULTS_JSON_END ==="
 echo "=== Trivy scan complete ==="
 ' \
