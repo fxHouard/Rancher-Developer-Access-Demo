@@ -1,12 +1,14 @@
-# Grafana (AppCo variant)
+# Grafana (Public grafana/grafana variant)
+# Pinned to 12.4.2 to match AppCo version
+image:
+  repository: grafana/grafana
+  tag: "12.4.2"
+
 adminPassword: demo
 
-global:
-  imagePullSecrets:
-  - application-collection
-
+# ClusterIP — accessed via port-forward, avoids NodePort conflicts with AppCo
 service:
-  type: NodePort
+  type: ClusterIP
 
 sidecar:
   dashboards:

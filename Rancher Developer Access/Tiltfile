@@ -9,7 +9,7 @@
 # Otherwise, it deploys everything from scratch.
 #
 # Usage:
-#   cd shadow && tilt up
+#   cd "Rancher Developer Access" && tilt up
 #
 # Components (8 apps × 2 variants = 16 images scanned):
 #   • PostgreSQL    — AppCo vs docker.io/library/postgres:18
@@ -204,7 +204,7 @@ local_resource(
 docker_build_with_restart(
     'message-wall-appco',
     '..',
-    dockerfile='../Dockerfile.appco',
+    dockerfile='Dockerfile.appco',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     live_update=[
@@ -229,11 +229,11 @@ docker_build_with_restart(
 )
 
 # Deploy AppCo message-wall (default namespace)
-deployment_appco = str(read_file('../k8s/appco/deployment.yaml')).replace(
+deployment_appco = str(read_file('k8s/appco/deployment.yaml')).replace(
     'PLACEHOLDER_PG_SVC', pg_appco_svc)
 deployment_appco = deployment_appco.replace('namespace: appco\n', '')
 
-service_appco = str(read_file('../k8s/appco/service.yaml')).replace(
+service_appco = str(read_file('k8s/appco/service.yaml')).replace(
     'namespace: appco\n', '')
 
 k8s_yaml([blob(deployment_appco), blob(service_appco)])
@@ -266,17 +266,17 @@ k8s_resource(
 
 # Keycloak realm ConfigMaps (auto-import realm with demo user + message-wall client)
 # Register as Tilt-managed resources so they survive namespace reconciliation
-keycloak_realm_cm = local('kubectl create configmap keycloak-realm --from-file=message-wall.json=../k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
+keycloak_realm_cm = local('kubectl create configmap keycloak-realm --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
 k8s_yaml(blob(str(keycloak_realm_cm)))
 k8s_resource(objects=['keycloak-realm:configmap:default'], new_name='keycloak-realm-cm', labels=['appco'])
 
-keycloak_realm_cm_public = local('kubectl create configmap keycloak-realm-public -n public --from-file=message-wall.json=../k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
+keycloak_realm_cm_public = local('kubectl create configmap keycloak-realm-public -n public --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
 k8s_yaml(blob(str(keycloak_realm_cm_public)))
 k8s_resource(objects=['keycloak-realm-public:configmap:public'], new_name='keycloak-realm-cm-public', labels=['public'])
 
 # Keycloak AppCo — deployed by Tilt (no Helm chart available on AppCo)
 # Tag from versions.env — keeps AppCo and Public keycloak aligned
-keycloak_appco_yaml = str(read_file('../k8s/appco/keycloak.yaml')).replace(
+keycloak_appco_yaml = str(read_file('k8s/appco/keycloak.yaml')).replace(
     'PLACEHOLDER_PG_SVC', pg_appco_svc).replace(
     'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG)
 k8s_yaml(blob(keycloak_appco_yaml))
@@ -304,14 +304,14 @@ k8s_resource(
 # wait for the entire Public stack (pg-public → keycloak-public).
 local_resource(
     'keycloak-realm-setup-appco',
-    cmd='bash ../scripts/setup-keycloak-realm.sh http://localhost:8080 ../k8s/shared/keycloak-realm.json',
+    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 k8s/shared/keycloak-realm.json',
     labels=['appco'],
     resource_deps=['keycloak-appco'],
 )
 
 local_resource(
     'keycloak-realm-setup-public',
-    cmd='bash ../scripts/setup-keycloak-realm.sh http://localhost:8180 ../k8s/shared/keycloak-realm.json',
+    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8180 k8s/shared/keycloak-realm.json',
     labels=['public'],
     resource_deps=['keycloak-public'],
 )
@@ -340,7 +340,7 @@ k8s_resource(
 )
 
 # Grafana dashboards (message-wall AppCo + Public + CVE comparison)
-k8s_yaml('../k8s/shared/grafana-dashboard.yaml')
+k8s_yaml('k8s/shared/grafana-dashboard.yaml')
 k8s_yaml('k8s/shared/grafana-dashboard-public.yaml')
 k8s_yaml('k8s/shared/grafana-cve-dashboard.yaml')
 

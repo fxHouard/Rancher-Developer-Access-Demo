@@ -1,4 +1,5 @@
-FROM dp.apps.rancher.io/containers/nodejs:24-dev
+ARG NODE_TAG=24
+FROM docker.io/library/node:${NODE_TAG}
 WORKDIR /app
 COPY package.json ./
 RUN npm install --no-package-lock
