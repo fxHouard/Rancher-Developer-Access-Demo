@@ -84,14 +84,14 @@ k8s_yaml(blob(pg_yaml))
 
 k8s_resource(
     'demo-postgresql',
-    labels=['infra'],
+    labels=['public'],
 )
 
 # Ensure keycloak DB in PostgreSQL (wait for pod to be ready)
 local_resource(
     'pg-keycloak-db',
     cmd="kubectl -n " + NS + " wait --for=condition=ready pod/demo-postgresql-0 --timeout=120s && (kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\" | grep -q 1 || kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak')",
-    labels=['infra'],
+    labels=['public'],
     resource_deps=['demo-postgresql'],
 )
 
@@ -103,7 +103,7 @@ local('helm repo update', quiet=True)
 local_resource(
     'prometheus',
     cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
-    labels=['infra'],
+    labels=['public'],
     resource_deps=['demo-postgresql'],
 )
 
@@ -111,7 +111,7 @@ local_resource(
 local_resource(
     'grafana',
     cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --wait --cleanup-on-fail --timeout 5m',
-    labels=['infra'],
+    labels=['public'],
     resource_deps=['demo-postgresql'],
 )
 
@@ -141,7 +141,7 @@ k8s_yaml([blob(deployment_yaml), blob(service_yaml)])
 k8s_resource(
     'message-wall',
     port_forwards='3000:3000',
-    labels=['app'],
+    labels=['public'],
     resource_deps=['demo-postgresql'],
 )
 
@@ -160,7 +160,7 @@ k8s_yaml(blob(keycloak_yaml))
 k8s_resource(
     'keycloak',
     port_forwards='8080:8080',
-    labels=['app'],
+    labels=['public'],
     resource_deps=['pg-keycloak-db'],
 )
 
@@ -168,7 +168,7 @@ k8s_resource(
 local_resource(
     'keycloak-realm-setup',
     cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 k8s/shared/keycloak-realm.json',
-    labels=['app'],
+    labels=['public'],
     resource_deps=['keycloak'],
 )
 
@@ -219,41 +219,45 @@ dash_mw  = in_ns(str(read_file('k8s/shared/grafana-dashboard.yaml')))
 dash_cve = in_ns(str(read_file('k8s/shared/grafana-cve-dashboard.yaml')))
 k8s_yaml([blob(dash_mw), blob(dash_cve)])
 
-# Discover Grafana and Prometheus services (in our namespace)
-def find_service(label_selector, ns=NS):
-    svc = str(local(
-        "kubectl get svc -n " + ns + " -l " + label_selector +
-        " -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ''",
-        quiet=True,
-    )).strip()
-    return svc
-
-prometheus_svc = find_service(
-    'app.kubernetes.io/instance=prometheus,app.kubernetes.io/component=server',
-)
-grafana_svc = find_service(
-    'app.kubernetes.io/instance=grafana',
+# Label the dashboard ConfigMaps so they don't show up as "uncategorized"
+# in the Tilt UI even when prometheus_svc discovery fails below.
+k8s_resource(
+    objects=['message-wall-dashboard:configmap',
+             'cve-dashboard:configmap'],
+    new_name='grafana-dashboards',
+    labels=['monitoring'],
 )
 
-if grafana_svc:
-    local_resource(
-        'grafana-ui',
-        serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + grafana_svc + ' 3001:80',
-        labels=['monitoring'],
-        allow_parallel=True,
-        links=['http://localhost:3001'],
-    )
+# Grafana / Prometheus port-forwards.
+# Service names are deterministic (Helm release name), so we declare them
+# unconditionally — no Tiltfile-parse-time service discovery, which would
+# race against `helm upgrade --install` finishing.
+PROMETHEUS_SVC = 'prometheus-server'
+GRAFANA_SVC    = 'grafana'
 
-if prometheus_svc:
-    local_resource(
-        'prometheus-ui',
-        serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + prometheus_svc + ' 9090:80',
-        labels=['monitoring'],
-        allow_parallel=True,
-        links=['http://localhost:9090'],
-    )
+local_resource(
+    'grafana-ui',
+    serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + GRAFANA_SVC + ' 3001:80',
+    labels=['monitoring'],
+    allow_parallel=True,
+    links=[
+        'http://localhost:3001',
+        'http://localhost:3001/d/message-wall/',
+        'http://localhost:3001/d/cve-scan/',
+    ],
+    resource_deps=['grafana'],
+)
 
-    datasource_cm = """apiVersion: v1
+local_resource(
+    'prometheus-ui',
+    serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + PROMETHEUS_SVC + ' 9090:80',
+    labels=['monitoring'],
+    allow_parallel=True,
+    links=['http://localhost:9090'],
+    resource_deps=['prometheus'],
+)
+
+datasource_cm = """apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasource-prometheus
@@ -271,17 +275,11 @@ data:
         access: proxy
         isDefault: true
         editable: false
-""".format(ns=NS, svc=prometheus_svc)
-    k8s_yaml(blob(datasource_cm))
+""".format(ns=NS, svc=PROMETHEUS_SVC)
+k8s_yaml(blob(datasource_cm))
 
-    k8s_resource(
-        objects=['message-wall-dashboard:configmap',
-                 'cve-dashboard:configmap',
-                 'grafana-datasource-prometheus:configmap'],
-        new_name='grafana-config',
-        labels=['monitoring'],
-        links=[
-            'http://localhost:3001/d/message-wall/',
-            'http://localhost:3001/d/cve-scan/',
-        ],
-    )
+k8s_resource(
+    objects=['grafana-datasource-prometheus:configmap'],
+    new_name='grafana-datasource',
+    labels=['monitoring'],
+)
