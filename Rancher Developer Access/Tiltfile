@@ -400,55 +400,13 @@ k8s_resource(
     labels=['cve-comparison'],
 )
 
-# AppCo Grafana / Prometheus were installed via the Application
-# Collection UI (not by Tilt), so we can't enable their Helm chart
-# `ingress.enabled` from here. Instead, wrap each in a standalone
-# Ingress resource pointing at the discovered Service.
-def appco_ingress(name, svc_name, host, port):
-    return """apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {name}
-  namespace: default
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: {host}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {svc}
-                port:
-                  number: {port}
-""".format(name=name, svc=svc_name, host=host, port=port)
-
-if grafana_appco_svc:
-    k8s_yaml(blob(appco_ingress('grafana-appco', grafana_appco_svc,
-                                'grafana-appco.localhost', 80)))
-    k8s_resource(
-        objects=['grafana-appco:ingress'],
-        new_name='grafana-appco-ui',
-        labels=['application-collection'],
-        links=[
-            'http://grafana-appco.localhost',
-            'http://grafana-appco.localhost/d/cve-comparison/',
-            'http://grafana-appco.localhost/d/message-wall/',
-        ],
-    )
+# AppCo Grafana / Prometheus ingresses are owned by their Helm
+# charts — see Rancher Developer Access/values_yaml/{grafana,prometheus}.yaml
+# (`ingress.enabled: true`, host=*-appco.localhost). Paste those values
+# into the Application Collection UI when installing those charts.
+# Nothing for Tilt to create here, just declare datasource + dashboards.
 
 if prometheus_appco_svc:
-    k8s_yaml(blob(appco_ingress('prometheus-appco', prometheus_appco_svc,
-                                'prometheus-appco.localhost', 80)))
-    k8s_resource(
-        objects=['prometheus-appco:ingress'],
-        new_name='prometheus-appco-ui',
-        labels=['application-collection'],
-        links=['http://prometheus-appco.localhost'],
-    )
-
     datasource_cm = """apiVersion: v1
 kind: ConfigMap
 metadata:

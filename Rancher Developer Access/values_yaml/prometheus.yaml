@@ -8,9 +8,19 @@ alertmanager:
 kubeStateMetrics:
   enabled: false
 
-image: 
+image:
   tag: "3.11.2-1.4"
-  
+
 global:
   imagePullSecrets:
   - application-collection
+
+# Traefik ingress — http://prometheus-appco.localhost
+# (see values_yaml/grafana.yaml comment for rationale)
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - prometheus-appco.localhost
+    path: /
