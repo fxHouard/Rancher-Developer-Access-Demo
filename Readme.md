@@ -57,16 +57,21 @@ From the Tilt dashboard ([localhost:10350](http://localhost:10350)), you have cl
 
 | Resource | URL | What |
 |---|---|---|
-| **message-wall** | [localhost:3000](http://localhost:3000) | The Message Wall app |
-| **keycloak** | [localhost:8080](http://localhost:8080) | Keycloak (login: admin / admin) |
-| **grafana** | [localhost:3001](http://localhost:3001) | Grafana (login: admin / demo) |
-| **grafana — Message Wall** | [localhost:3001/d/message-wall/](http://localhost:3001/d/message-wall/) | Message Wall metrics dashboard |
-| **grafana — CVE Scan** | [localhost:3001/d/cve-scan/](http://localhost:3001/d/cve-scan/) | CVE scan results dashboard |
-| **prometheus** | [localhost:9090](http://localhost:9090) | Prometheus |
+| **message-wall** | [message-wall.localhost](http://message-wall.localhost) | The Message Wall app |
+| **keycloak** | [keycloak.localhost](http://keycloak.localhost) | Keycloak (login: admin / admin) |
+| **grafana** | [grafana.localhost](http://grafana.localhost) | Grafana (login: admin / demo) |
+| **grafana — Message Wall** | [grafana.localhost/d/message-wall/](http://grafana.localhost/d/message-wall/) | Message Wall metrics dashboard |
+| **grafana — CVE Scan** | [grafana.localhost/d/cve-scan/](http://grafana.localhost/d/cve-scan/) | CVE scan results dashboard |
+| **prometheus** | [prometheus.localhost](http://prometheus.localhost) | Prometheus |
+
+> All UIs are exposed through Traefik ingress (bundled with k3s in
+> Rancher Desktop). Browsers short-circuit `*.localhost → 127.0.0.1`
+> per RFC 6761, and Rancher Desktop's klipper-lb auto-binds Traefik
+> on `127.0.0.1:80` — so no `kubectl port-forward`, no `/etc/hosts`.
 
 **Try it:**
 
-1. Open the **Message Wall** ([localhost:3000](http://localhost:3000)) and post a few messages.
+1. Open the **Message Wall** ([message-wall.localhost](http://message-wall.localhost)) and post a few messages.
 2. Open the **Grafana dashboard** — metrics update in real time (requests/sec, messages count, response time, memory).
 3. In `src/server.js`, change the `ACCENT_COLOR` value (line 9), save. In ~2 seconds, the wall color changes without losing messages — that's Tilt's live update in action.
 4. Check the **CVE Scan** dashboard to see vulnerabilities found in the public images.
@@ -81,7 +86,7 @@ The **Tiltfile** orchestrates the developer inner loop:
 - Deploys Keycloak from its upstream Quay.io image and configures the realm automatically
 - Runs Trivy CVE scans on all deployed images
 - Generates Grafana dashboards (8-panel app metrics + CVE scan results)
-- Sets up port-forwards and clickable links for all services
+- Exposes every UI through Traefik ingress on `*.localhost` (no port-forwards)
 
 ## Project structure
 
