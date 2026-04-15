@@ -98,7 +98,7 @@ local_resource(
 # Prometheus (via Helm)
 local('helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true', quiet=True)
 local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
-local('helm repo update', quiet=True)
+local('helm repo update prometheus-community grafana', quiet=True)
 
 local_resource(
     'prometheus',
