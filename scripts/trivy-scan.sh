@@ -20,9 +20,14 @@ CONFIGMAP_NAME="cve-results"
 TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3}"
 SCANNER_IMAGE="${SCANNER_IMAGE:-$TRIVY_IMAGE}"
 TRIVY_CACHE="${TRIVY_CACHE:-$HOME/.cache/trivy}"
+# Namespace where the public demo lives. Default aligns with the root
+# Tiltfile which now deploys into `public` (keeping `default` free for
+# the AppCo half of the RDA comparison demo).
+NS="${NS:-public}"
 
 echo "═══════════════════════════════════════════════════"
 echo "  Trivy Scan — Public Images (host-side)"
+echo "  Namespace: $NS"
 echo "  Scanner: $SCANNER_IMAGE"
 echo "  DB cache: $TRIVY_CACHE"
 echo "  Components: postgresql, prometheus, node-exporter,"
@@ -69,11 +74,11 @@ run_trivy() {
 echo ""
 echo "── Discovering images from running pods... ──"
 
-PUB_PG=$(get_pod_image default "app.kubernetes.io/name=postgresql" "postgresql")
-PUB_PROM=$(get_pod_image default "app.kubernetes.io/instance=prometheus,app.kubernetes.io/component=server" "prometheus-server")
-PUB_NODEEXP=$(get_pod_image default "app.kubernetes.io/instance=prometheus,app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
-PUB_GRAF=$(get_pod_image default "app.kubernetes.io/instance=grafana" "grafana")
-PUB_KC=$(get_pod_image default "app=keycloak,variant=public" "keycloak")
+PUB_PG=$(get_pod_image "$NS" "app.kubernetes.io/name=postgresql" "postgresql")
+PUB_PROM=$(get_pod_image "$NS" "app.kubernetes.io/instance=prometheus,app.kubernetes.io/component=server" "prometheus-server")
+PUB_NODEEXP=$(get_pod_image "$NS" "app.kubernetes.io/instance=prometheus,app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
+PUB_GRAF=$(get_pod_image "$NS" "app.kubernetes.io/instance=grafana" "grafana")
+PUB_KC=$(get_pod_image "$NS" "app=keycloak,variant=public" "keycloak")
 PUB_MW=$(get_tilt_image "message-wall")
 PUB_TRIVY="${TRIVY_IMAGE}"
 
@@ -206,6 +211,7 @@ echo "✅ Scan complete → $RESULTS_FILE"
 
 # ─── Push to ConfigMap ───────────────────────────────────────
 kubectl create configmap "$CONFIGMAP_NAME" \
+    --namespace "$NS" \
     --from-file=cve-results.json="$RESULTS_FILE" \
     --dry-run=client -o yaml | kubectl apply -f -
 echo "✅ ConfigMap '$CONFIGMAP_NAME' updated"

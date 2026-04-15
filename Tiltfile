@@ -1,7 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════
 # Message Wall — Public Images Demo Tiltfile
 #
-# Deploys a message-wall application using public upstream images:
+# Deploys a message-wall application using public upstream images
+# INTO THE `public` NAMESPACE, so it can coexist with the AppCo
+# comparison demo (which uses `default` for AppCo workloads).
+#
+# Components:
 #   • PostgreSQL   — docker.io/library/postgres
 #   • Prometheus   — prom/prometheus (Helm)
 #   • Grafana      — grafana/grafana (Helm)
@@ -19,6 +23,8 @@ load('ext://restart_process', 'docker_build_with_restart')
 
 allow_k8s_contexts('rancher-desktop')
 
+NS = 'public'
+
 # ─── Helpers ───────────────────────────────────────────────────
 def load_versions(path):
     """Parse a KEY=VALUE env file (ignores comments and blank lines)."""
@@ -32,6 +38,14 @@ def load_versions(path):
             versions[k.strip()] = v.strip()
     return versions
 
+def in_ns(yaml_str):
+    """Inject `namespace: public` right after each top-level `metadata:` block.
+    Matches the pattern `metadata:\n  name: ` (2-space indent → top-level
+    metadata only, never container names which use 6+ space indent)."""
+    return yaml_str.replace(
+        'metadata:\n  name: ',
+        'metadata:\n  namespace: ' + NS + '\n  name: ')
+
 # ═══════════════════════════════════════════════════════════════
 # Load pinned image versions from versions.env
 # ═══════════════════════════════════════════════════════════════
@@ -44,6 +58,7 @@ NODE_TAG       = V.get('NODE_TAG',       '24')
 TRIVY_TAG      = V.get('TRIVY_TAG',      '0.69.3')
 
 print('──────────────────────────────────────────────')
+print('  Namespace: ' + NS)
 print('  Image versions (from versions.env):')
 print('    postgres:    ' + POSTGRES_TAG)
 print('    prometheus:  ' + PROMETHEUS_TAG)
@@ -54,12 +69,17 @@ print('    trivy:       ' + TRIVY_TAG)
 print('──────────────────────────────────────────────')
 
 # ═══════════════════════════════════════════════════════════════
+# PHASE 0 — Ensure the `public` namespace exists
+# ═══════════════════════════════════════════════════════════════
+local('kubectl get ns ' + NS + ' >/dev/null 2>&1 || kubectl create ns ' + NS, quiet=True)
+
+# ═══════════════════════════════════════════════════════════════
 # PHASE 1 — Infrastructure (PostgreSQL, Prometheus, Grafana)
 # ═══════════════════════════════════════════════════════════════
 
 # PostgreSQL (official Docker Hub image)
-pg_yaml = str(read_file('k8s/postgresql.yaml')).replace(
-    'PLACEHOLDER_POSTGRES_TAG', POSTGRES_TAG)
+pg_yaml = in_ns(str(read_file('k8s/postgresql.yaml')).replace(
+    'PLACEHOLDER_POSTGRES_TAG', POSTGRES_TAG))
 k8s_yaml(blob(pg_yaml))
 
 k8s_resource(
@@ -70,7 +90,7 @@ k8s_resource(
 # Ensure keycloak DB in PostgreSQL (wait for pod to be ready)
 local_resource(
     'pg-keycloak-db',
-    cmd="kubectl wait --for=condition=ready pod/demo-postgresql-0 --timeout=120s && (kubectl exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\" | grep -q 1 || kubectl exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak')",
+    cmd="kubectl -n " + NS + " wait --for=condition=ready pod/demo-postgresql-0 --timeout=120s && (kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\" | grep -q 1 || kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak')",
     labels=['infra'],
     resource_deps=['demo-postgresql'],
 )
@@ -82,7 +102,7 @@ local('helm repo update', quiet=True)
 
 local_resource(
     'prometheus',
-    cmd='helm upgrade --install prometheus prometheus-community/prometheus -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
+    cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
     labels=['infra'],
     resource_deps=['demo-postgresql'],
 )
@@ -90,7 +110,7 @@ local_resource(
 # Grafana (via Helm)
 local_resource(
     'grafana',
-    cmd='helm upgrade --install grafana grafana/grafana -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --wait --cleanup-on-fail --timeout 5m',
+    cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --wait --cleanup-on-fail --timeout 5m',
     labels=['infra'],
     resource_deps=['demo-postgresql'],
 )
@@ -113,9 +133,10 @@ docker_build_with_restart(
     ],
 )
 
-deployment_yaml = str(read_file('k8s/deployment.yaml')).replace(
-    'PLACEHOLDER_PG_SVC', 'demo-postgresql')
-k8s_yaml([blob(deployment_yaml), 'k8s/service.yaml'])
+deployment_yaml = in_ns(str(read_file('k8s/deployment.yaml')).replace(
+    'PLACEHOLDER_PG_SVC', 'demo-postgresql'))
+service_yaml = in_ns(str(read_file('k8s/service.yaml')))
+k8s_yaml([blob(deployment_yaml), blob(service_yaml)])
 
 k8s_resource(
     'message-wall',
@@ -129,11 +150,11 @@ k8s_resource(
 # ═══════════════════════════════════════════════════════════════
 
 # Keycloak realm ConfigMap
-local('kubectl create configmap keycloak-realm --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml | kubectl apply -f -', quiet=True)
+local('kubectl create configmap keycloak-realm --namespace ' + NS + ' --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml | kubectl apply -f -', quiet=True)
 
 # Keycloak (upstream Quay.io image)
-keycloak_yaml = str(read_file('k8s/keycloak.yaml')).replace(
-    'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG)
+keycloak_yaml = in_ns(str(read_file('k8s/keycloak.yaml')).replace(
+    'PLACEHOLDER_KEYCLOAK_TAG', KEYCLOAK_TAG))
 k8s_yaml(blob(keycloak_yaml))
 
 k8s_resource(
@@ -163,18 +184,19 @@ docker_build(
     only=['scripts/cve-exporter.py'],
 )
 
-# Deploy exporter
-k8s_yaml('k8s/shared/cve-exporter.yaml')
+# Deploy exporter (yaml is ns-agnostic → inject namespace)
+cve_exporter_yaml = in_ns(str(read_file('k8s/shared/cve-exporter.yaml')))
+k8s_yaml(blob(cve_exporter_yaml))
 
 k8s_resource(
     'cve-exporter',
     labels=['cve-scan'],
 )
 
-# Trivy scan (public images only)
+# Trivy scan (public images only — discovery runs in NS)
 local_resource(
     'trivy-scan',
-    cmd='TRIVY_IMAGE=aquasec/trivy:' + TRIVY_TAG + ' bash scripts/trivy-scan.sh',
+    cmd='TRIVY_IMAGE=aquasec/trivy:' + TRIVY_TAG + ' NS=' + NS + ' bash scripts/trivy-scan.sh',
     labels=['cve-scan'],
     resource_deps=['message-wall', 'keycloak',
                    'demo-postgresql', 'prometheus', 'grafana'],
@@ -183,7 +205,7 @@ local_resource(
 # Restart cve-exporter after each scan
 local_resource(
     'cve-exporter-reload',
-    cmd='kubectl rollout restart deployment/cve-exporter && kubectl rollout status deployment/cve-exporter --timeout=60s',
+    cmd='kubectl -n ' + NS + ' rollout restart deployment/cve-exporter && kubectl -n ' + NS + ' rollout status deployment/cve-exporter --timeout=60s',
     labels=['cve-scan'],
     resource_deps=['trivy-scan', 'cve-exporter'],
 )
@@ -193,11 +215,12 @@ local_resource(
 # ═══════════════════════════════════════════════════════════════
 
 # Grafana dashboards (message-wall metrics + CVE scan results)
-k8s_yaml('k8s/shared/grafana-dashboard.yaml')
-k8s_yaml('k8s/shared/grafana-cve-dashboard.yaml')
+dash_mw  = in_ns(str(read_file('k8s/shared/grafana-dashboard.yaml')))
+dash_cve = in_ns(str(read_file('k8s/shared/grafana-cve-dashboard.yaml')))
+k8s_yaml([blob(dash_mw), blob(dash_cve)])
 
-# Discover Grafana and Prometheus services
-def find_service(label_selector, ns='default'):
+# Discover Grafana and Prometheus services (in our namespace)
+def find_service(label_selector, ns=NS):
     svc = str(local(
         "kubectl get svc -n " + ns + " -l " + label_selector +
         " -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ''",
@@ -215,7 +238,7 @@ grafana_svc = find_service(
 if grafana_svc:
     local_resource(
         'grafana-ui',
-        serve_cmd='kubectl port-forward svc/' + grafana_svc + ' 3001:80',
+        serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + grafana_svc + ' 3001:80',
         labels=['monitoring'],
         allow_parallel=True,
         links=['http://localhost:3001'],
@@ -224,7 +247,7 @@ if grafana_svc:
 if prometheus_svc:
     local_resource(
         'prometheus-ui',
-        serve_cmd='kubectl port-forward svc/' + prometheus_svc + ' 9090:80',
+        serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + prometheus_svc + ' 9090:80',
         labels=['monitoring'],
         allow_parallel=True,
         links=['http://localhost:9090'],
@@ -234,6 +257,7 @@ if prometheus_svc:
 kind: ConfigMap
 metadata:
   name: grafana-datasource-prometheus
+  namespace: {ns}
   labels:
     grafana_datasource: "1"
 data:
@@ -247,7 +271,7 @@ data:
         access: proxy
         isDefault: true
         editable: false
-""".format(svc=prometheus_svc)
+""".format(ns=NS, svc=prometheus_svc)
     k8s_yaml(blob(datasource_cm))
 
     k8s_resource(
