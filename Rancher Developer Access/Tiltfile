@@ -59,8 +59,12 @@ def render_public(path):
     y = y.replace('app: message-wall\n',       'app: message-wall-public\n')
     y = y.replace('image: message-wall\n',     'image: message-wall-public\n')
     y = y.replace('http://keycloak:8080',      'http://keycloak-public:8080')
-    # Public Keycloak is port-forwarded on 8180 (AppCo owns 8080)
-    y = y.replace('http://localhost:8080',     'http://localhost:8180')
+    # Public-facing OAuth URL: distinct host = isolated cookie jar from
+    # AppCo Keycloak (cookies are per-host, not per-port).
+    y = y.replace('http://keycloak.localhost', 'http://keycloak-public.localhost')
+    # Ingress hostname overrides for the public variant
+    y = y.replace('host: keycloak.localhost',     'host: keycloak-public.localhost')
+    y = y.replace('host: message-wall.localhost', 'host: message-wall-public.localhost')
     return y
 
 def load_versions(path):
@@ -203,16 +207,23 @@ local_resource(
 # Prometheus (official prom/prometheus from Docker Hub, tag from versions.env)
 local_resource(
     'prometheus-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f ../values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
+    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f ../values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus-public.localhost --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
+    links=['http://prometheus-public.localhost'],
     resource_deps=['pg-public'],
 )
 
 # Grafana (official grafana/grafana from Docker Hub, tag from versions.env)
+# Distinct ingress host (grafana-public.localhost) → isolated cookie jar
+# from AppCo grafana, so login on one doesn't kick the other out.
 local_resource(
     'grafana-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f ../values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set "grafana\\.ini".auth.login_cookie_name=grafana_public_session --wait --cleanup-on-fail --timeout 5m',
+    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f ../values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana-public.localhost --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
+    links=[
+        'http://grafana-public.localhost',
+        'http://grafana-public.localhost/d/message-wall-public/',
+    ],
     resource_deps=['pg-public'],
 )
 
@@ -262,8 +273,8 @@ k8s_yaml([blob(deployment_appco), blob(service_appco)])
 
 k8s_resource(
     'message-wall-appco',
-    port_forwards='3000:3000',
     labels=['application-collection'],
+    links=['http://message-wall-appco.localhost'],
 )
 
 # Deploy Public message-wall (public namespace)
@@ -274,8 +285,8 @@ k8s_yaml([blob(deployment_public), blob(service_public)])
 
 k8s_resource(
     'message-wall-public',
-    port_forwards='3100:3000',
     labels=['public'],
+    links=['http://message-wall-public.localhost'],
     resource_deps=['pg-public'],
 )
 
@@ -306,8 +317,8 @@ k8s_yaml(blob(keycloak_appco_yaml))
 
 k8s_resource(
     'keycloak-appco',
-    port_forwards='8080:8080',
     labels=['application-collection'],
+    links=['http://keycloak-appco.localhost'],
 )
 
 # Keycloak Public (deployed by Tilt, upstream image, tag from versions.env)
@@ -317,24 +328,25 @@ k8s_yaml(blob(keycloak_public_yaml))
 
 k8s_resource(
     'keycloak-public',
-    port_forwards='8180:8080',
     labels=['public'],
+    links=['http://keycloak-public.localhost'],
     resource_deps=['pg-public-keycloak-db'],
 )
 
-# Keycloak realm setup via Admin REST API (idempotent)
-# Split into two independent resources so AppCo realm setup doesn't
-# wait for the entire Public stack (pg-public → keycloak-public).
+# Keycloak realm setup via Admin REST API (idempotent).
+# Now hits the Traefik ingress on http://*.localhost — no port-forward.
+# Distinct hosts (keycloak-appco vs keycloak-public) ensure isolated
+# cookie jars between the two Keycloak admin sessions.
 local_resource(
     'keycloak-realm-setup-appco',
-    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 k8s/shared/keycloak-realm.json',
+    cmd='bash scripts/setup-keycloak-realm.sh http://keycloak-appco.localhost k8s/shared/keycloak-realm.json',
     labels=['application-collection'],
     resource_deps=['keycloak-appco'],
 )
 
 local_resource(
     'keycloak-realm-setup-public',
-    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8180 k8s/shared/keycloak-realm.json',
+    cmd='bash scripts/setup-keycloak-realm.sh http://keycloak-public.localhost k8s/shared/keycloak-realm.json',
     labels=['public'],
     resource_deps=['keycloak-public'],
 )
@@ -388,22 +400,53 @@ k8s_resource(
     labels=['cve-comparison'],
 )
 
+# AppCo Grafana / Prometheus were installed via the Application
+# Collection UI (not by Tilt), so we can't enable their Helm chart
+# `ingress.enabled` from here. Instead, wrap each in a standalone
+# Ingress resource pointing at the discovered Service.
+def appco_ingress(name, svc_name, host, port):
+    return """apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {name}
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: {host}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {svc}
+                port:
+                  number: {port}
+""".format(name=name, svc=svc_name, host=host, port=port)
+
 if grafana_appco_svc:
-    local_resource(
-        'grafana-appco-ui',
-        serve_cmd='kubectl port-forward svc/' + grafana_appco_svc + ' 3200:80',
+    k8s_yaml(blob(appco_ingress('grafana-appco', grafana_appco_svc,
+                                'grafana-appco.localhost', 80)))
+    k8s_resource(
+        objects=['grafana-appco:ingress'],
+        new_name='grafana-appco-ui',
         labels=['application-collection'],
-        allow_parallel=True,
-        links=['http://localhost:3200'],
+        links=[
+            'http://grafana-appco.localhost',
+            'http://grafana-appco.localhost/d/cve-comparison/',
+            'http://grafana-appco.localhost/d/message-wall/',
+        ],
     )
 
 if prometheus_appco_svc:
-    local_resource(
-        'prometheus-appco-ui',
-        serve_cmd='kubectl port-forward svc/' + prometheus_appco_svc + ' 9190:80',
+    k8s_yaml(blob(appco_ingress('prometheus-appco', prometheus_appco_svc,
+                                'prometheus-appco.localhost', 80)))
+    k8s_resource(
+        objects=['prometheus-appco:ingress'],
+        new_name='prometheus-appco-ui',
         labels=['application-collection'],
-        allow_parallel=True,
-        links=['http://localhost:9190'],
+        links=['http://prometheus-appco.localhost'],
     )
 
     datasource_cm = """apiVersion: v1
@@ -430,10 +473,6 @@ data:
         objects=['grafana-datasource-prometheus:configmap'],
         new_name='grafana-datasource-appco',
         labels=['application-collection'],
-        links=[
-            'http://localhost:3200/d/cve-comparison/',
-            'http://localhost:3200/d/message-wall/',
-        ],
     )
 
 # Datasource for Public Grafana → Public Prometheus
@@ -464,17 +503,9 @@ k8s_resource(
     labels=['public'],
 )
 
-local_resource(
-    'grafana-public-ui',
-    serve_cmd='kubectl port-forward -n public svc/grafana-public 3300:80',
-    labels=['public'],
-    allow_parallel=True,
-    links=[
-        'http://localhost:3300',
-        'http://localhost:3300/d/message-wall-public/',
-    ],
-    resource_deps=['grafana-public'],
-)
+# Public Grafana is exposed via Helm-managed ingress (see helm --set
+# ingress.hosts[0]=grafana-public.localhost in the `grafana-public`
+# resource above). Browser links live there.
 
 # ═══════════════════════════════════════════════════════════════
 # PHASE 5 — Trivy Scan & CVE Comparison

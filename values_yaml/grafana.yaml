@@ -7,9 +7,21 @@ image:
 
 adminPassword: demo
 
-# ClusterIP — accessed via port-forward, avoids NodePort conflicts with AppCo
+# ClusterIP — exposed via Traefik ingress (*.localhost)
 service:
   type: ClusterIP
+
+# Traefik ingress. Hostname(s) overridden per-demo via helm --set from the
+# Tiltfile (root demo → grafana.localhost, RDA public → grafana-public.localhost).
+# Traefik auto-binds 127.0.0.1:80 on Rancher Desktop (klipper-lb), and
+# browsers short-circuit *.localhost → 127.0.0.1 per RFC 6761 → no DNS,
+# no /etc/hosts, no per-service port-forward.
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  hosts:
+    - grafana.localhost
+  path: /
 
 sidecar:
   dashboards:

@@ -9,3 +9,22 @@ spec:
   ports:
     - port: 3000
       targetPort: 3000
+---
+# Traefik ingress — http://message-wall-appco.localhost/
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: message-wall-appco
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: message-wall-appco.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: message-wall-appco
+                port:
+                  number: 3000
