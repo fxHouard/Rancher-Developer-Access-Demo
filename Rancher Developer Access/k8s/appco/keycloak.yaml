@@ -62,9 +62,14 @@ spec:
               value: "true"
             - name: KC_HEALTH_ENABLED
               value: "true"
-            - name: KEYCLOAK_ADMIN
+            # Keycloak 26+ renamed bootstrap admin env vars. The legacy
+            # KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD are silently ignored,
+            # which leaves the master realm without an admin role and
+            # eventually crashes with NPE in RealmCacheSession on first
+            # admin-cli token request.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
               value: admin
-            - name: KEYCLOAK_ADMIN_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               value: admin
           startupProbe:
             httpGet:
