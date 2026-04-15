@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-# Trivy Scan — runs as a Kubernetes Job inside the cluster
+# Trivy Scan — host-side orchestration
 #
-# Discovers images from running pods, then launches a Trivy
-# scan Job that accesses the container runtime via hostPath.
-# Results are saved to a ConfigMap for the CVE exporter.
+# Runs trivy via `docker run` on the workstation. No K8s Job, no
+# ConfigMap-injected script. The trivy AppCo container is used as
+# a one-shot binary; all parsing/aggregation happens here on the
+# host where jq is available.
+#
+# DB cache lives in $HOME/.cache/trivy on the host → first run
+# downloads, subsequent runs reuse (trivy auto-refreshes every 24h).
 #
 # Components: postgresql, prometheus, node-exporter,
 #             grafana, message-wall, keycloak, trivy
@@ -12,21 +16,31 @@
 set -uo pipefail
 
 RESULTS_FILE="${RESULTS_FILE:-/tmp/cve-results.json}"
+SCAN_DIR="${SCAN_DIR:-/tmp/trivy-scans}"
 CONFIGMAP_NAME="cve-results"
-JOB_NAME="trivy-scan"
 TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3}"
-# Scanner pod itself runs the AppCo trivy image (cluster purity: no
-# non-AppCo images land on the cluster except the public-demo workloads).
-# TRIVY_IMAGE above is kept as the *scanned* public reference.
+# Scanner = AppCo trivy (cluster-purity story holds even though we
+# now run scans from the host: the only image we *use* as a tool is
+# the AppCo one). TRIVY_IMAGE is kept as the *scanned* public ref.
 SCANNER_IMAGE="${SCANNER_IMAGE:-dp.apps.rancher.io/containers/trivy:${APPCO_TRIVY_TAG:-0.69.3-9.1}}"
+TRIVY_CACHE="${TRIVY_CACHE:-$HOME/.cache/trivy}"
+DOCKER_CONFIG_FILE="${DOCKER_CONFIG_FILE:-$HOME/.docker/config.json}"
 
 echo "═══════════════════════════════════════════════════"
-echo "  Trivy Scan — K8s Job"
+echo "  Trivy Scan — host-side"
 echo "  Scanner: $SCANNER_IMAGE"
 echo "  (Public trivy scanned: $TRIVY_IMAGE)"
+echo "  DB cache: $TRIVY_CACHE"
 echo "  Components: postgresql, prometheus, node-exporter,"
 echo "    grafana, message-wall, keycloak, trivy"
 echo "═══════════════════════════════════════════════════"
+
+# Sanity checks
+command -v docker  >/dev/null || { echo "❌ docker not found"; exit 1; }
+command -v kubectl >/dev/null || { echo "❌ kubectl not found"; exit 1; }
+command -v jq      >/dev/null || { echo "❌ jq not found (brew install jq)"; exit 1; }
+
+mkdir -p "$TRIVY_CACHE" "$SCAN_DIR"
 
 # ─── Helpers ─────────────────────────────────────────────────
 get_pod_image() {
@@ -47,6 +61,22 @@ get_tilt_image() {
         | grep "^${name}:" | head -1 || echo "${name}:latest"
 }
 
+run_trivy() {
+    # Wraps `docker run` for trivy. Mounts:
+    #   - docker.sock so trivy can scan images from the host daemon
+    #     (needed for Tilt-built images that aren't in any registry)
+    #   - the host trivy cache so the DB persists across runs
+    #   - ~/.docker/config.json for AppCo registry credentials
+    local extra_mount=""
+    [ -f "$DOCKER_CONFIG_FILE" ] && \
+        extra_mount="-v $DOCKER_CONFIG_FILE:/root/.docker/config.json:ro"
+    docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v "$TRIVY_CACHE:/root/.cache/trivy" \
+        $extra_mount \
+        "$SCANNER_IMAGE" "$@"
+}
+
 # ─── Discover images ─────────────────────────────────────────
 echo ""
 echo "── Discovering images from running pods... ──"
@@ -59,7 +89,7 @@ APPCO_GRAF=$(get_pod_image default "app.kubernetes.io/name=grafana" "grafana")
 APPCO_KC=$(get_pod_image default "app=keycloak,variant=appco" "keycloak")
 APPCO_MW=$(get_tilt_image "message-wall-appco")
 
-# Public (public namespace) — uses prometheus-community/prometheus chart
+# Public (public namespace)
 PUB_PG=$(get_pod_image public "app.kubernetes.io/name=postgresql" "postgresql")
 PUB_PROM=$(get_pod_image public "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/component=server" "prometheus-server")
 PUB_NODEEXP=$(get_pod_image public "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
@@ -67,36 +97,31 @@ PUB_GRAF=$(get_pod_image public "app.kubernetes.io/instance=grafana-public" "gra
 PUB_KC=$(get_pod_image public "app=keycloak,variant=public" "keycloak")
 PUB_MW=$(get_tilt_image "message-wall-public")
 
-# Trivy itself — AppCo vs public (meta: scanning the scanner!)
-# APPCO_TRIVY_TAG comes from versions.env (includes SUSE patch suffix)
-# Public trivy = the same image used to run this scan
-APPCO_TRIVY="dp.apps.rancher.io/containers/trivy:${APPCO_TRIVY_TAG:-${TRIVY_IMAGE#*:}}"
+# Trivy itself — meta: scan the scanner
+APPCO_TRIVY="${SCANNER_IMAGE}"
 PUB_TRIVY="${TRIVY_IMAGE}"
 
 echo ""
 echo "  AppCo images:"
-echo "    postgresql:    ${APPCO_PG:-unknown}"
-echo "    prometheus:    ${APPCO_PROM:-unknown}"
-echo "    node-exporter: ${APPCO_NODEEXP:-unknown}"
-echo "    grafana:       ${APPCO_GRAF:-unknown}"
-echo "    keycloak:      ${APPCO_KC:-unknown}"
-echo "    message-wall:  ${APPCO_MW:-unknown}"
-echo "    trivy:         ${APPCO_TRIVY}"
+printf "    %-13s %s\n" postgresql: "${APPCO_PG:-unknown}"
+printf "    %-13s %s\n" prometheus: "${APPCO_PROM:-unknown}"
+printf "    %-13s %s\n" node-exporter: "${APPCO_NODEEXP:-unknown}"
+printf "    %-13s %s\n" grafana: "${APPCO_GRAF:-unknown}"
+printf "    %-13s %s\n" keycloak: "${APPCO_KC:-unknown}"
+printf "    %-13s %s\n" message-wall: "${APPCO_MW:-unknown}"
+printf "    %-13s %s\n" trivy: "${APPCO_TRIVY}"
 echo ""
 echo "  Public images:"
-echo "    postgresql:    ${PUB_PG:-unknown}"
-echo "    prometheus:    ${PUB_PROM:-unknown}"
-echo "    node-exporter: ${PUB_NODEEXP:-unknown}"
-echo "    grafana:       ${PUB_GRAF:-unknown}"
-echo "    keycloak:      ${PUB_KC:-unknown}"
-echo "    message-wall:  ${PUB_MW:-unknown}"
-echo "    trivy:         ${PUB_TRIVY}"
+printf "    %-13s %s\n" postgresql: "${PUB_PG:-unknown}"
+printf "    %-13s %s\n" prometheus: "${PUB_PROM:-unknown}"
+printf "    %-13s %s\n" node-exporter: "${PUB_NODEEXP:-unknown}"
+printf "    %-13s %s\n" grafana: "${PUB_GRAF:-unknown}"
+printf "    %-13s %s\n" keycloak: "${PUB_KC:-unknown}"
+printf "    %-13s %s\n" message-wall: "${PUB_MW:-unknown}"
+printf "    %-13s %s\n" trivy: "${PUB_TRIVY}"
 
-# ─── Build image scan list ───────────────────────────────────
-# Format: project|application|name|image|base_image (one per line)
-# application groups components (e.g. prometheus includes server, node-exporter)
-# base_image is the FROM image for custom-built images (message-wall)
-# 7 components × 2 variants = 14 images
+# ─── Build image list ────────────────────────────────────────
+# Format: project|application|name|image|base_image
 IMAGE_LIST="appco-images|postgresql|postgresql|${APPCO_PG}|
 appco-images|prometheus|prometheus|${APPCO_PROM}|
 appco-images|prometheus|node-exporter|${APPCO_NODEEXP}|
@@ -113,214 +138,114 @@ public-images|keycloak|keycloak|${PUB_KC}|
 public-images|message-wall|message-wall|${PUB_MW}|node:24
 "
 
-# ─── Create scan script as ConfigMap ─────────────────────────
-kubectl create configmap trivy-scan-script --dry-run=client -o yaml \
-  --from-literal=scan.sh='#!/bin/sh
-# NOTE: no "set -e" — we want to continue even if one scan fails
+# ─── Refresh DB once up front ────────────────────────────────
+echo ""
+echo "── Refreshing trivy DB (cache: $TRIVY_CACHE) ──"
+run_trivy image --download-db-only      2>&1 | tail -3 || echo "  (DB update failed, continuing with stale cache)"
+run_trivy image --download-java-db-only 2>&1 | tail -3 || true
 
-echo "=== Trivy scan starting ==="
-echo "Tools present: $(command -v grep >/dev/null && echo grep) $(command -v wc >/dev/null && echo wc) $(command -v jq >/dev/null && echo jq)"
+# ─── Scan loop ───────────────────────────────────────────────
+echo ""
+echo "── Scanning images ──"
 
-echo "Downloading vulnerability databases..."
-trivy image --download-db-only 2>&1 | tail -5
-trivy image --download-java-db-only 2>&1 | tail -5
-echo "DB ready."
+# Reset scan dir
+rm -f "$SCAN_DIR"/*.json "$SCAN_DIR"/*.log 2>/dev/null || true
 
-# Setup Docker config for AppCo registry (from mounted secret)
-if [ -f /dockerconfig/.dockerconfigjson ]; then
-    mkdir -p /root/.docker
-    cp /dockerconfig/.dockerconfigjson /root/.docker/config.json
-    echo "Docker registry credentials loaded."
-fi
+scan_count=0
+ok_count=0
+err_count=0
 
-IMAGES_FILE="/config/images.txt"
-RESULTS_FILE="/tmp/results.json"
+while IFS="|" read -r project application name image base_image; do
+    [ -z "$image" ] && continue
+    scan_count=$((scan_count + 1))
+    safe="${project}_${name}"
+    out="$SCAN_DIR/${safe}.json"
+    log="$SCAN_DIR/${safe}.log"
+
+    echo ""
+    echo "  ── [$scan_count] $project/$application/$name ──"
+    echo "     Image: $image"
+    [ -n "$base_image" ] && echo "     Base:  $base_image"
+
+    if run_trivy image \
+        --format json --skip-db-update \
+        --severity CRITICAL,HIGH,MEDIUM,LOW \
+        --timeout 600s \
+        "$image" > "$out" 2>"$log"; then
+        bytes=$(wc -c < "$out" | tr -d ' ')
+        echo "     Scan OK ($bytes bytes)"
+        ok_count=$((ok_count + 1))
+    else
+        rc=$?
+        echo "     Scan FAILED (exit $rc)"
+        tail -10 "$log" | sed 's/^/       /'
+        err_count=$((err_count + 1))
+    fi
+done <<< "$IMAGE_LIST"
+
+echo ""
+echo "── Scan summary: $ok_count ok, $err_count errors out of $scan_count ──"
+
+# ─── Aggregate results into cve-results.json ─────────────────
+echo ""
+echo "── Aggregating results with jq ──"
+
+: > "$RESULTS_FILE"
 echo "[" > "$RESULTS_FILE"
 first=true
 
 while IFS="|" read -r project application name image base_image; do
     [ -z "$image" ] && continue
-    echo ""
-    echo "  ── Scanning: $project/$application/$name ──"
-    echo "     Image: $image"
-    [ -n "$base_image" ] && echo "     Base:  $base_image"
+    safe="${project}_${name}"
+    out="$SCAN_DIR/${safe}.json"
 
-    # Run trivy — JSON to stdout file, stderr to log file
-    raw=""
-    SCAN_JSON="/tmp/scan_${project}_${name}.json"
-    SCAN_LOG="/tmp/scan_${project}_${name}.log"
-    if trivy image --format json --skip-db-update \
-        --timeout 600s \
-        --severity CRITICAL,HIGH,MEDIUM,LOW \
-        "$image" > "$SCAN_JSON" 2>"$SCAN_LOG"; then
-        raw=$(cat "$SCAN_JSON")
-        echo "     Scan OK ($(wc -c < "$SCAN_JSON") bytes)"
+    if [ -s "$out" ] && jq -e . "$out" >/dev/null 2>&1; then
+        entry=$(jq -c \
+            --arg proj "$project" --arg app "$application" \
+            --arg repo "$name" --arg img "$image" --arg base "${base_image:-}" \
+            '{
+                project: $proj,
+                application: $app,
+                repository: $repo,
+                image: $img,
+                base_image: $base,
+                base_os: (([.Results[]? | select(.Class == "os-pkgs") | .Target | capture("\\((?<os>[^)]+)\\)$").os // .] | first) // ""),
+                Critical: ([.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length),
+                High:     ([.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length),
+                Medium:   ([.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length),
+                Low:      ([.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length),
+                Total:    ([.Results[]?.Vulnerabilities[]?] | length),
+                status: "success"
+            }' "$out" 2>/dev/null)
     else
-        echo "     Scan FAILED (exit $?)"
-        cat "$SCAN_LOG" >&2
-        raw=$(cat "$SCAN_JSON")
+        entry=""
     fi
 
-    # Parse by counting severity occurrences in the JSON. No jq needed:
-    # grep is present in both the Alpine aquasec image and the SLE BCI
-    # AppCo image. The JSON is emitted by trivy with a predictable shape.
-    entry=""
-    if [ -s "$SCAN_JSON" ]; then
-        # Regex handles both pretty-printed ("Severity": "HIGH") and compact
-        # ("Severity":"HIGH") JSON — trivy output format varies by version.
-        critical=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"CRITICAL\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        high=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"HIGH\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        medium=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"MEDIUM\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        low=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"LOW\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        total=$((critical + high + medium + low))
-        # base_os: capture text inside the first "Target": "... (xxx)" line
-        base_os=$(grep -m1 -o "\"Target\": \"[^\"]*([^)]*)\"" "$SCAN_JSON" 2>/dev/null \
-                  | sed -n "s/.*(\\([^)]*\\)).*/\\1/p" || true)
-        entry="{\"project\":\"$project\",\"application\":\"$application\",\"repository\":\"$name\",\"image\":\"$image\",\"base_image\":\"${base_image:-}\",\"base_os\":\"${base_os:-}\",\"Critical\":$critical,\"High\":$high,\"Medium\":$medium,\"Low\":$low,\"Total\":$total,\"status\":\"success\"}"
-        echo "     Found $total CVEs (C:$critical H:$high M:$medium L:$low)"
-    else
-        entry="{\"project\":\"$project\",\"application\":\"$application\",\"repository\":\"$name\",\"image\":\"$image\",\"base_image\":\"${base_image:-}\",\"base_os\":\"\",\"Critical\":0,\"High\":0,\"Medium\":0,\"Low\":0,\"Total\":0,\"status\":\"error\"}"
-        echo "     Using error fallback entry (empty scan output)"
+    if [ -z "$entry" ]; then
+        entry=$(jq -nc \
+            --arg proj "$project" --arg app "$application" \
+            --arg repo "$name" --arg img "$image" --arg base "${base_image:-}" \
+            '{project: $proj, application: $app, repository: $repo, image: $img, base_image: $base, base_os: "", Critical: 0, High: 0, Medium: 0, Low: 0, Total: 0, status: "error"}')
     fi
 
-    if [ "$first" = true ]; then
-        first=false
-    else
-        printf "," >> "$RESULTS_FILE"
-    fi
-    printf "%s" "$entry" >> "$RESULTS_FILE"
-
-done < "$IMAGES_FILE"
+    if [ "$first" = true ]; then first=false; else printf "," >> "$RESULTS_FILE"; fi
+    printf "%s\n" "$entry" >> "$RESULTS_FILE"
+done <<< "$IMAGE_LIST"
 
 echo "]" >> "$RESULTS_FILE"
 
-echo ""
-echo "=== SCAN_RESULTS_JSON_START ==="
-cat "$RESULTS_FILE"
-echo "=== SCAN_RESULTS_JSON_END ==="
-echo "=== Trivy scan complete ==="
-' \
-  --from-literal=images.txt="$IMAGE_LIST" \
-  | kubectl apply -f -
-
-# ─── Clean up old job ────────────────────────────────────────
-kubectl delete job "$JOB_NAME" --ignore-not-found 2>/dev/null
-sleep 2
-
-# ─── Launch scan Job ─────────────────────────────────────────
-echo ""
-echo "── Launching Trivy scan Job in K8s... ──"
-
-cat <<JOBEOF | kubectl apply -f -
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${JOB_NAME}
-spec:
-  ttlSecondsAfterFinished: 300
-  backoffLimit: 0
-  template:
-    spec:
-      containers:
-      - name: trivy
-        image: ${SCANNER_IMAGE}
-        command: ["/bin/sh", "/config/scan.sh"]
-        volumeMounts:
-        - name: scan-config
-          mountPath: /config
-        - name: docker-sock
-          mountPath: /var/run/docker.sock
-        - name: trivy-cache
-          mountPath: /root/.cache
-        - name: docker-config
-          mountPath: /dockerconfig
-          readOnly: true
-        resources:
-          requests:
-            memory: 1Gi
-            cpu: 500m
-          limits:
-            memory: 6Gi
-      volumes:
-      - name: scan-config
-        configMap:
-          name: trivy-scan-script
-          defaultMode: 0755
-      - name: docker-sock
-        hostPath:
-          path: /var/run/docker.sock
-          type: Socket
-      - name: trivy-cache
-        emptyDir:
-          sizeLimit: 3Gi
-      - name: docker-config
-        secret:
-          secretName: application-collection
-          optional: true
-      restartPolicy: Never
-      imagePullSecrets:
-      - name: application-collection
-JOBEOF
-
-# ─── Wait for completion ─────────────────────────────────────
-echo "  Waiting for scan to complete (this may take several minutes on first run)..."
-echo "  Follow progress: kubectl logs -f job/${JOB_NAME}"
-
-if ! kubectl wait --for=condition=complete "job/${JOB_NAME}" --timeout=900s 2>/dev/null; then
-    echo "❌ Scan job failed or timed out. Check logs:"
-    echo "   kubectl logs job/${JOB_NAME}"
-    kubectl logs "job/${JOB_NAME}" --tail=20 2>/dev/null || true
-    exit 1
-fi
-
-# ─── Extract results ─────────────────────────────────────────
-echo "  Extracting results..."
-
-# Get logs — extract JSON between our markers
-LOGS=$(kubectl logs "job/${JOB_NAME}" 2>/dev/null)
-
-# Extract between markers
-JSON_BLOCK=$(echo "$LOGS" | sed -n '/=== SCAN_RESULTS_JSON_START ===/,/=== SCAN_RESULTS_JSON_END ===/p' | grep -v '=== SCAN_RESULTS')
-
-if [ -z "$JSON_BLOCK" ]; then
-    echo "⚠️  No JSON markers found, trying raw extraction..."
-    # Fallback: find the JSON array in the logs
-    JSON_BLOCK=$(echo "$LOGS" | grep -A 9999 '^\[' | head -n -1)
-fi
-
-if [ -z "$JSON_BLOCK" ]; then
-    echo "❌ Could not extract results from job logs."
-    echo "   Full logs:"
-    echo "$LOGS"
-    exit 1
-fi
-
-echo "$JSON_BLOCK" > "$RESULTS_FILE"
-
 echo "✅ Scan complete → $RESULTS_FILE"
 
-# ─── Create/update ConfigMap ─────────────────────────────────
+# ─── Push to ConfigMap ───────────────────────────────────────
 kubectl create configmap "$CONFIGMAP_NAME" \
     --from-file=cve-results.json="$RESULTS_FILE" \
     --dry-run=client -o yaml | kubectl apply -f -
-
 echo "✅ ConfigMap '$CONFIGMAP_NAME' updated"
 
-# ─── Quick summary (pure sed/grep/awk — no jq) ───────────────
+# ─── Quick summary (jq on host — no constraints) ─────────────
 echo ""
-# Split the compact JSON array into one entry per line, then filter by
-# project and status, then sum the Total fields.
-sum_total() {
-    local project="$1"
-    sed 's/},{/}\n{/g' "$RESULTS_FILE" \
-        | grep "\"project\":\"${project}\"" \
-        | grep '"status":"success"' \
-        | grep -oE '"Total":[0-9]+' \
-        | grep -oE '[0-9]+' \
-        | awk '{s+=$1} END {print s+0}'
-}
-APPCO_TOTAL=$(sum_total appco-images)
-PUB_TOTAL=$(sum_total public-images)
+APPCO_TOTAL=$(jq '[.[] | select(.project=="appco-images" and .status=="success") | .Total] | add // 0' "$RESULTS_FILE")
+PUB_TOTAL=$(jq   '[.[] | select(.project=="public-images" and .status=="success") | .Total] | add // 0' "$RESULTS_FILE")
 echo "  AppCo total:  ${APPCO_TOTAL:-0} CVEs"
 echo "  Public total: ${PUB_TOTAL:-0} CVEs"
 if [ "${PUB_TOTAL:-0}" -gt "${APPCO_TOTAL:-0}" ] 2>/dev/null; then
