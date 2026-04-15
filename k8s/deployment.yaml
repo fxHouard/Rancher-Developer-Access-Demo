@@ -36,9 +36,8 @@ spec:
             - name: KEYCLOAK_URL
               value: "http://keycloak:8080"
             # Browser-facing Keycloak URL (used for OAuth redirects).
-            # render_public() in RDA rewrites this to keycloak-public.localhost.
             - name: KEYCLOAK_PUBLIC_URL
-              value: "http://keycloak.localhost"
+              value: "http://keycloak-public.localhost"
           livenessProbe:
             httpGet:
               path: /health

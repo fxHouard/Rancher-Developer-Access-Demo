@@ -102,21 +102,21 @@ local('helm repo update prometheus-community grafana', quiet=True)
 
 local_resource(
     'prometheus',
-    cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus.localhost --wait --cleanup-on-fail --timeout 5m',
+    cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus-public.localhost --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
-    links=['http://prometheus.localhost'],
+    links=['http://prometheus-public.localhost'],
     resource_deps=['demo-postgresql'],
 )
 
 # Grafana (via Helm)
 local_resource(
     'grafana',
-    cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana.localhost --wait --cleanup-on-fail --timeout 5m',
+    cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana-public.localhost --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
     links=[
-        'http://grafana.localhost',
-        'http://grafana.localhost/d/message-wall/',
-        'http://grafana.localhost/d/cve-scan/',
+        'http://grafana-public.localhost',
+        'http://grafana-public.localhost/d/message-wall/',
+        'http://grafana-public.localhost/d/cve-scan/',
     ],
     resource_deps=['demo-postgresql'],
 )
@@ -148,7 +148,7 @@ k8s_resource(
     'message-wall',
     objects=['message-wall:ingress'],
     labels=['public'],
-    links=['http://message-wall.localhost'],
+    links=['http://message-wall-public.localhost'],
     resource_deps=['demo-postgresql'],
 )
 
@@ -168,17 +168,17 @@ k8s_resource(
     'keycloak',
     objects=['keycloak:ingress'],
     labels=['public'],
-    links=['http://keycloak.localhost'],
+    links=['http://keycloak-public.localhost'],
     resource_deps=['pg-keycloak-db'],
 )
 
 # Keycloak realm setup via Admin REST API (idempotent).
-# Hits the ingress on http://keycloak.localhost — Traefik routes by Host
-# header, no port-forward needed. Works in any browser/curl that honors
-# RFC 6761 *.localhost short-circuit (macOS, Linux+systemd, all browsers).
+# Hits the ingress on http://keycloak-public.localhost — Traefik routes
+# by Host header, no port-forward. Works in any browser/curl that honors
+# the RFC 6761 *.localhost short-circuit (macOS, Linux+systemd, browsers).
 local_resource(
     'keycloak-realm-setup',
-    cmd='bash scripts/setup-keycloak-realm.sh http://keycloak.localhost k8s/shared/keycloak-realm.json',
+    cmd='bash scripts/setup-keycloak-realm.sh http://keycloak-public.localhost k8s/shared/keycloak-realm.json',
     labels=['public'],
     resource_deps=['keycloak'],
 )
@@ -213,13 +213,18 @@ local_resource(
                    'demo-postgresql', 'prometheus', 'grafana'],
 )
 
-# Restart cve-exporter after each scan
-local_resource(
-    'cve-exporter-reload',
-    cmd='kubectl -n ' + NS + ' rollout restart deployment/cve-exporter && kubectl -n ' + NS + ' rollout status deployment/cve-exporter --timeout=60s',
-    labels=['cve-scan'],
-    resource_deps=['trivy-scan', 'cve-exporter'],
-)
+# No cve-exporter restart after trivy-scan.
+#
+# The exporter polls /data/cve-results.json every REFRESH_INTERVAL (10s)
+# and rebuilds metrics when mtime changes. The kubelet propagates
+# ConfigMap updates into the mounted volume within ~60s. Fresh scan
+# data flows to Prometheus on its own — no restart needed.
+#
+# Rolling-restart was actively harmful: each restart gave the new pod
+# fresh `instance`/`pod` labels in Prometheus service discovery while
+# the old pod's series stayed queryable for ~5min (staleness window).
+# During that overlap, `sum(cve_total{...})` double-counted (old +
+# new pod), inflating the "Total CVEs" stat to ~2× the real value.
 
 # ═══════════════════════════════════════════════════════════════
 # PHASE 5 — Grafana Dashboard & Port Forwards

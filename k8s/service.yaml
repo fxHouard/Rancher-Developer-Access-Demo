@@ -9,9 +9,8 @@ spec:
     - port: 3000
       targetPort: 3000
 ---
-# Traefik ingress — exposes message-wall on http://message-wall.localhost/
-# (render_public() in the RDA Tiltfile rewrites this host to
-# message-wall-public.localhost for the public variant).
+# Traefik ingress — exposes message-wall on http://message-wall-public.localhost/
+# Same host across root demo and RDA Public variant.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -19,7 +18,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: message-wall.localhost
+    - host: message-wall-public.localhost
       http:
         paths:
           - path: /

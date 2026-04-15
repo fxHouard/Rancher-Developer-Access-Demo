@@ -59,12 +59,10 @@ def render_public(path):
     y = y.replace('app: message-wall\n',       'app: message-wall-public\n')
     y = y.replace('image: message-wall\n',     'image: message-wall-public\n')
     y = y.replace('http://keycloak:8080',      'http://keycloak-public:8080')
-    # Public-facing OAuth URL: distinct host = isolated cookie jar from
-    # AppCo Keycloak (cookies are per-host, not per-port).
-    y = y.replace('http://keycloak.localhost', 'http://keycloak-public.localhost')
-    # Ingress hostname overrides for the public variant
-    y = y.replace('host: keycloak.localhost',     'host: keycloak-public.localhost')
-    y = y.replace('host: message-wall.localhost', 'host: message-wall-public.localhost')
+    # Hostnames in the source YAML already use *-public.localhost
+    # (root demo and RDA Public are the same stack), so no host
+    # rewriting is needed. The KEYCLOAK_PUBLIC_URL env var and the
+    # Ingress `host:` fields carry through unchanged.
     return y
 
 def load_versions(path):
@@ -515,10 +513,15 @@ local_resource(
                    'pg-public', 'prometheus-public', 'grafana-public'],
 )
 
-# Restart cve-exporter after each trivy-scan so it picks up the new ConfigMap
-local_resource(
-    'cve-exporter-reload',
-    cmd='kubectl rollout restart deployment/cve-exporter && kubectl rollout status deployment/cve-exporter --timeout=60s',
-    labels=['cve-comparison'],
-    resource_deps=['trivy-scan', 'cve-exporter'],
-)
+# No cve-exporter restart after trivy-scan.
+#
+# The exporter polls /data/cve-results.json every REFRESH_INTERVAL (10s) and
+# rebuilds metrics when mtime changes. The kubelet propagates ConfigMap
+# updates into the mounted volume within ~60s. So fresh scan data flows
+# to Prometheus on its own.
+#
+# Rolling-restart was actively harmful: each restart gave the new pod
+# fresh `instance`/`pod` labels in Prometheus service discovery while the
+# old pod's series stayed queryable for ~5min (staleness window). During
+# that overlap, `sum(cve_total{...})` double-counted (old pod + new pod),
+# which is why the "Public Total CVEs" stat showed ~2× the real value.
