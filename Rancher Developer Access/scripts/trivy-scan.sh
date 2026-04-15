@@ -166,10 +166,12 @@ while IFS="|" read -r project application name image base_image; do
     # AppCo image. The JSON is emitted by trivy with a predictable shape.
     entry=""
     if [ -s "$SCAN_JSON" ]; then
-        critical=$(grep -c "\"Severity\": \"CRITICAL\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        high=$(grep -c "\"Severity\": \"HIGH\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        medium=$(grep -c "\"Severity\": \"MEDIUM\"" "$SCAN_JSON" 2>/dev/null || echo 0)
-        low=$(grep -c "\"Severity\": \"LOW\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        # Regex handles both pretty-printed ("Severity": "HIGH") and compact
+        # ("Severity":"HIGH") JSON — trivy output format varies by version.
+        critical=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"CRITICAL\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        high=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"HIGH\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        medium=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"MEDIUM\"" "$SCAN_JSON" 2>/dev/null || echo 0)
+        low=$(grep -cE "\"Severity\"[[:space:]]*:[[:space:]]*\"LOW\"" "$SCAN_JSON" 2>/dev/null || echo 0)
         total=$((critical + high + medium + low))
         # base_os: capture text inside the first "Target": "... (xxx)" line
         base_os=$(grep -m1 -o "\"Target\": \"[^\"]*([^)]*)\"" "$SCAN_JSON" 2>/dev/null \
@@ -304,12 +306,23 @@ kubectl create configmap "$CONFIGMAP_NAME" \
 
 echo "✅ ConfigMap '$CONFIGMAP_NAME' updated"
 
-# ─── Quick summary (using jq, no python3 needed) ─────────────
+# ─── Quick summary (pure sed/grep/awk — no jq) ───────────────
 echo ""
-APPCO_TOTAL=$(cat "$RESULTS_FILE" | jq '[.[] | select(.project=="appco-images" and .status=="success") | .Total] | add // 0' 2>/dev/null)
-PUB_TOTAL=$(cat "$RESULTS_FILE" | jq '[.[] | select(.project=="public-images" and .status=="success") | .Total] | add // 0' 2>/dev/null)
-echo "  AppCo total:  ${APPCO_TOTAL:-?} CVEs"
-echo "  Public total: ${PUB_TOTAL:-?} CVEs"
+# Split the compact JSON array into one entry per line, then filter by
+# project and status, then sum the Total fields.
+sum_total() {
+    local project="$1"
+    sed 's/},{/}\n{/g' "$RESULTS_FILE" \
+        | grep "\"project\":\"${project}\"" \
+        | grep '"status":"success"' \
+        | grep -oE '"Total":[0-9]+' \
+        | grep -oE '[0-9]+' \
+        | awk '{s+=$1} END {print s+0}'
+}
+APPCO_TOTAL=$(sum_total appco-images)
+PUB_TOTAL=$(sum_total public-images)
+echo "  AppCo total:  ${APPCO_TOTAL:-0} CVEs"
+echo "  Public total: ${PUB_TOTAL:-0} CVEs"
 if [ "${PUB_TOTAL:-0}" -gt "${APPCO_TOTAL:-0}" ] 2>/dev/null; then
     DIFF=$((PUB_TOTAL - APPCO_TOTAL))
     echo "  >>> AppCo has $DIFF fewer CVEs <<<"
