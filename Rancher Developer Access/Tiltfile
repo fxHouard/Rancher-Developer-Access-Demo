@@ -59,12 +59,10 @@ def render_public(path):
     y = y.replace('app: message-wall\n',       'app: message-wall-public\n')
     y = y.replace('image: message-wall\n',     'image: message-wall-public\n')
     y = y.replace('http://keycloak:8080',      'http://keycloak-public:8080')
-    # Public-facing OAuth URL: distinct host = isolated cookie jar from
-    # AppCo Keycloak (cookies are per-host, not per-port).
-    y = y.replace('http://keycloak.localhost', 'http://keycloak-public.localhost')
-    # Ingress hostname overrides for the public variant
-    y = y.replace('host: keycloak.localhost',     'host: keycloak-public.localhost')
-    y = y.replace('host: message-wall.localhost', 'host: message-wall-public.localhost')
+    # Hostnames in the source YAML already use *-public.localhost
+    # (root demo and RDA Public are the same stack), so no host
+    # rewriting is needed. The KEYCLOAK_PUBLIC_URL env var and the
+    # Ingress `host:` fields carry through unchanged.
     return y
 
 def load_versions(path):

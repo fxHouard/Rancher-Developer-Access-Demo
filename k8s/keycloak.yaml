@@ -104,10 +104,9 @@ spec:
     app: keycloak
     variant: public
 ---
-# Traefik ingress — exposes keycloak on http://keycloak.localhost/
-# (render_public() in the RDA Tiltfile rewrites this host to
-# keycloak-public.localhost when reusing this YAML for the public
-# variant alongside AppCo).
+# Traefik ingress — exposes keycloak on http://keycloak-public.localhost/
+# Same host across the root demo and the RDA Public variant — they're
+# the same stack, just orchestrated from different Tiltfiles.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -118,7 +117,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: keycloak.localhost
+    - host: keycloak-public.localhost
       http:
         paths:
           - path: /

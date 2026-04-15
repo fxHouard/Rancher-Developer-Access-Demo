@@ -8,15 +8,14 @@ server:
     tag: v3.11.1
   service:
     type: ClusterIP
-  # Traefik ingress — hostname overridden per-demo via helm --set from
-  # the Tiltfile (root → prometheus.localhost, RDA public →
-  # prometheus-public.localhost). See values_yaml/grafana.yaml for the
-  # rationale (klipper-lb + RFC 6761 *.localhost short-circuit).
+  # Traefik ingress on prometheus-public.localhost. Same host across
+  # the root demo and the RDA Public variant. See values_yaml/grafana.yaml
+  # for the rationale (klipper-lb + RFC 6761 *.localhost short-circuit).
   ingress:
     enabled: true
     ingressClassName: traefik
     hosts:
-      - prometheus.localhost
+      - prometheus-public.localhost
     path: /
 
 # Alertmanager is not used by this demo

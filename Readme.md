@@ -57,12 +57,12 @@ From the Tilt dashboard ([localhost:10350](http://localhost:10350)), you have cl
 
 | Resource | URL | What |
 |---|---|---|
-| **message-wall** | [message-wall.localhost](http://message-wall.localhost) | The Message Wall app |
-| **keycloak** | [keycloak.localhost](http://keycloak.localhost) | Keycloak (login: admin / admin) |
-| **grafana** | [grafana.localhost](http://grafana.localhost) | Grafana (login: admin / demo) |
-| **grafana — Message Wall** | [grafana.localhost/d/message-wall/](http://grafana.localhost/d/message-wall/) | Message Wall metrics dashboard |
-| **grafana — CVE Scan** | [grafana.localhost/d/cve-scan/](http://grafana.localhost/d/cve-scan/) | CVE scan results dashboard |
-| **prometheus** | [prometheus.localhost](http://prometheus.localhost) | Prometheus |
+| **message-wall** | [message-wall-public.localhost](http://message-wall-public.localhost) | The Message Wall app |
+| **keycloak** | [keycloak-public.localhost](http://keycloak-public.localhost) | Keycloak (login: admin / admin) |
+| **grafana** | [grafana-public.localhost](http://grafana-public.localhost) | Grafana (login: admin / demo) |
+| **grafana — Message Wall** | [grafana-public.localhost/d/message-wall/](http://grafana-public.localhost/d/message-wall/) | Message Wall metrics dashboard |
+| **grafana — CVE Scan** | [grafana-public.localhost/d/cve-scan/](http://grafana-public.localhost/d/cve-scan/) | CVE scan results dashboard |
+| **prometheus** | [prometheus-public.localhost](http://prometheus-public.localhost) | Prometheus |
 
 > All UIs are exposed through Traefik ingress (bundled with k3s in
 > Rancher Desktop). Browsers short-circuit `*.localhost → 127.0.0.1`
@@ -71,7 +71,7 @@ From the Tilt dashboard ([localhost:10350](http://localhost:10350)), you have cl
 
 **Try it:**
 
-1. Open the **Message Wall** ([message-wall.localhost](http://message-wall.localhost)) and post a few messages.
+1. Open the **Message Wall** ([message-wall-public.localhost](http://message-wall-public.localhost)) and post a few messages.
 2. Open the **Grafana dashboard** — metrics update in real time (requests/sec, messages count, response time, memory).
 3. In `src/server.js`, change the `ACCENT_COLOR` value (line 9), save. In ~2 seconds, the wall color changes without losing messages — that's Tilt's live update in action.
 4. Check the **CVE Scan** dashboard to see vulnerabilities found in the public images.
