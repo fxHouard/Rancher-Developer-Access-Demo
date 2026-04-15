@@ -102,16 +102,22 @@ local('helm repo update', quiet=True)
 
 local_resource(
     'prometheus',
-    cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --wait --cleanup-on-fail --timeout 5m',
+    cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus.localhost --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
+    links=['http://prometheus.localhost'],
     resource_deps=['demo-postgresql'],
 )
 
 # Grafana (via Helm)
 local_resource(
     'grafana',
-    cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --wait --cleanup-on-fail --timeout 5m',
+    cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana.localhost --wait --cleanup-on-fail --timeout 5m',
     labels=['public'],
+    links=[
+        'http://grafana.localhost',
+        'http://grafana.localhost/d/message-wall/',
+        'http://grafana.localhost/d/cve-scan/',
+    ],
     resource_deps=['demo-postgresql'],
 )
 
@@ -140,8 +146,8 @@ k8s_yaml([blob(deployment_yaml), blob(service_yaml)])
 
 k8s_resource(
     'message-wall',
-    port_forwards='3000:3000',
     labels=['public'],
+    links=['http://message-wall.localhost'],
     resource_deps=['demo-postgresql'],
 )
 
@@ -159,15 +165,18 @@ k8s_yaml(blob(keycloak_yaml))
 
 k8s_resource(
     'keycloak',
-    port_forwards='8080:8080',
     labels=['public'],
+    links=['http://keycloak.localhost'],
     resource_deps=['pg-keycloak-db'],
 )
 
-# Keycloak realm setup via Admin REST API (idempotent)
+# Keycloak realm setup via Admin REST API (idempotent).
+# Hits the ingress on http://keycloak.localhost — Traefik routes by Host
+# header, no port-forward needed. Works in any browser/curl that honors
+# RFC 6761 *.localhost short-circuit (macOS, Linux+systemd, all browsers).
 local_resource(
     'keycloak-realm-setup',
-    cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 k8s/shared/keycloak-realm.json',
+    cmd='bash scripts/setup-keycloak-realm.sh http://keycloak.localhost k8s/shared/keycloak-realm.json',
     labels=['public'],
     resource_deps=['keycloak'],
 )
@@ -228,34 +237,14 @@ k8s_resource(
     labels=['public'],
 )
 
-# Grafana / Prometheus port-forwards.
-# Service names are deterministic (Helm release name), so we declare them
-# unconditionally — no Tiltfile-parse-time service discovery, which would
-# race against `helm upgrade --install` finishing.
+# Grafana / Prometheus are exposed via Traefik ingress (see
+# values_yaml/*.yaml + helm --set ingress.hosts[0]=… in the
+# `prometheus` / `grafana` resources above). Browser access goes
+# through http://{grafana,prometheus}.localhost — no port-forward.
+#
+# Datasource still uses the in-cluster Service DNS (Helm release name
+# is deterministic).
 PROMETHEUS_SVC = 'prometheus-server'
-GRAFANA_SVC    = 'grafana'
-
-local_resource(
-    'grafana-ui',
-    serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + GRAFANA_SVC + ' 3001:80',
-    labels=['public'],
-    allow_parallel=True,
-    links=[
-        'http://localhost:3001',
-        'http://localhost:3001/d/message-wall/',
-        'http://localhost:3001/d/cve-scan/',
-    ],
-    resource_deps=['grafana'],
-)
-
-local_resource(
-    'prometheus-ui',
-    serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + PROMETHEUS_SVC + ' 9090:80',
-    labels=['public'],
-    allow_parallel=True,
-    links=['http://localhost:9090'],
-    resource_deps=['prometheus'],
-)
 
 datasource_cm = """apiVersion: v1
 kind: ConfigMap

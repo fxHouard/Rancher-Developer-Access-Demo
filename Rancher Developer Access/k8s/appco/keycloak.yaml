@@ -108,3 +108,27 @@ spec:
   selector:
     app: keycloak
     variant: appco
+---
+# Traefik ingress — http://keycloak-appco.localhost/
+# Distinct hostname from keycloak-public.localhost so each Keycloak
+# owns its own cookie jar (cookies are scoped per-host, not per-port).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak-appco
+  labels:
+    app: keycloak
+    variant: appco
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: keycloak-appco.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak-appco
+                port:
+                  number: 8080

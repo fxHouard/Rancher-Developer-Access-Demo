@@ -37,7 +37,7 @@ spec:
             - name: KEYCLOAK_URL
               value: "http://keycloak-appco:8080"
             - name: KEYCLOAK_PUBLIC_URL
-              value: "http://localhost:8080"
+              value: "http://keycloak-appco.localhost"
           livenessProbe:
             httpGet:
               path: /health
