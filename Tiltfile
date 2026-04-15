@@ -213,13 +213,18 @@ local_resource(
                    'demo-postgresql', 'prometheus', 'grafana'],
 )
 
-# Restart cve-exporter after each scan
-local_resource(
-    'cve-exporter-reload',
-    cmd='kubectl -n ' + NS + ' rollout restart deployment/cve-exporter && kubectl -n ' + NS + ' rollout status deployment/cve-exporter --timeout=60s',
-    labels=['cve-scan'],
-    resource_deps=['trivy-scan', 'cve-exporter'],
-)
+# No cve-exporter restart after trivy-scan.
+#
+# The exporter polls /data/cve-results.json every REFRESH_INTERVAL (10s)
+# and rebuilds metrics when mtime changes. The kubelet propagates
+# ConfigMap updates into the mounted volume within ~60s. Fresh scan
+# data flows to Prometheus on its own — no restart needed.
+#
+# Rolling-restart was actively harmful: each restart gave the new pod
+# fresh `instance`/`pod` labels in Prometheus service discovery while
+# the old pod's series stayed queryable for ~5min (staleness window).
+# During that overlap, `sum(cve_total{...})` double-counted (old +
+# new pod), inflating the "Total CVEs" stat to ~2× the real value.
 
 # ═══════════════════════════════════════════════════════════════
 # PHASE 5 — Grafana Dashboard & Port Forwards
