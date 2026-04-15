@@ -225,7 +225,7 @@ k8s_resource(
     objects=['message-wall-dashboard:configmap',
              'cve-dashboard:configmap'],
     new_name='grafana-dashboards',
-    labels=['monitoring'],
+    labels=['public'],
 )
 
 # Grafana / Prometheus port-forwards.
@@ -238,7 +238,7 @@ GRAFANA_SVC    = 'grafana'
 local_resource(
     'grafana-ui',
     serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + GRAFANA_SVC + ' 3001:80',
-    labels=['monitoring'],
+    labels=['public'],
     allow_parallel=True,
     links=[
         'http://localhost:3001',
@@ -251,7 +251,7 @@ local_resource(
 local_resource(
     'prometheus-ui',
     serve_cmd='kubectl port-forward -n ' + NS + ' svc/' + PROMETHEUS_SVC + ' 9090:80',
-    labels=['monitoring'],
+    labels=['public'],
     allow_parallel=True,
     links=['http://localhost:9090'],
     resource_deps=['prometheus'],
@@ -281,5 +281,5 @@ k8s_yaml(blob(datasource_cm))
 k8s_resource(
     objects=['grafana-datasource-prometheus:configmap'],
     new_name='grafana-datasource',
-    labels=['monitoring'],
+    labels=['public'],
 )

@@ -263,7 +263,7 @@ k8s_yaml([blob(deployment_appco), blob(service_appco)])
 k8s_resource(
     'message-wall-appco',
     port_forwards='3000:3000',
-    labels=['appco'],
+    labels=['application-collection'],
 )
 
 # Deploy Public message-wall (public namespace)
@@ -291,7 +291,7 @@ k8s_resource(
 # Register as Tilt-managed resources so they survive namespace reconciliation
 keycloak_realm_cm = local('kubectl create configmap keycloak-realm --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
 k8s_yaml(blob(str(keycloak_realm_cm)))
-k8s_resource(objects=['keycloak-realm:configmap:default'], new_name='keycloak-realm-cm', labels=['appco'])
+k8s_resource(objects=['keycloak-realm:configmap:default'], new_name='keycloak-realm-cm', labels=['application-collection'])
 
 keycloak_realm_cm_public = local('kubectl create configmap keycloak-realm-public -n public --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
 k8s_yaml(blob(str(keycloak_realm_cm_public)))
@@ -307,7 +307,7 @@ k8s_yaml(blob(keycloak_appco_yaml))
 k8s_resource(
     'keycloak-appco',
     port_forwards='8080:8080',
-    labels=['appco'],
+    labels=['application-collection'],
 )
 
 # Keycloak Public (deployed by Tilt, upstream image, tag from versions.env)
@@ -328,7 +328,7 @@ k8s_resource(
 local_resource(
     'keycloak-realm-setup-appco',
     cmd='bash scripts/setup-keycloak-realm.sh http://localhost:8080 k8s/shared/keycloak-realm.json',
-    labels=['appco'],
+    labels=['application-collection'],
     resource_deps=['keycloak-appco'],
 )
 
@@ -367,13 +367,24 @@ k8s_yaml('k8s/shared/grafana-dashboard.yaml')
 k8s_yaml('k8s/shared/grafana-dashboard-public.yaml')
 k8s_yaml('k8s/shared/grafana-cve-dashboard.yaml')
 
-# Label dashboard ConfigMaps unconditionally so they don't leak into the
-# Tilt UI "uncategorized" bucket when prometheus_appco_svc is empty.
+# Label each dashboard ConfigMap under the variant it visualizes, so the
+# Tilt UI grouping mirrors the deployment story:
+#   - AppCo message-wall dashboard       → application-collection bucket
+#   - Public message-wall dashboard      → public bucket
+#   - CVE comparison dashboard (shared)  → cve-comparison bucket
 k8s_resource(
-    objects=['message-wall-dashboard:configmap',
-             'message-wall-dashboard-public:configmap',
-             'cve-comparison-dashboard:configmap'],
-    new_name='grafana-dashboards',
+    objects=['message-wall-dashboard:configmap'],
+    new_name='grafana-dashboard-appco',
+    labels=['application-collection'],
+)
+k8s_resource(
+    objects=['message-wall-dashboard-public:configmap'],
+    new_name='grafana-dashboard-public',
+    labels=['public'],
+)
+k8s_resource(
+    objects=['cve-comparison-dashboard:configmap'],
+    new_name='grafana-dashboard-cve',
     labels=['cve-comparison'],
 )
 
@@ -381,7 +392,7 @@ if grafana_appco_svc:
     local_resource(
         'grafana-appco-ui',
         serve_cmd='kubectl port-forward svc/' + grafana_appco_svc + ' 3200:80',
-        labels=['appco'],
+        labels=['application-collection'],
         allow_parallel=True,
         links=['http://localhost:3200'],
     )
@@ -390,7 +401,7 @@ if prometheus_appco_svc:
     local_resource(
         'prometheus-appco-ui',
         serve_cmd='kubectl port-forward svc/' + prometheus_appco_svc + ' 9190:80',
-        labels=['appco'],
+        labels=['application-collection'],
         allow_parallel=True,
         links=['http://localhost:9190'],
     )
@@ -418,7 +429,7 @@ data:
     k8s_resource(
         objects=['grafana-datasource-prometheus:configmap'],
         new_name='grafana-datasource-appco',
-        labels=['appco'],
+        labels=['application-collection'],
         links=[
             'http://localhost:3200/d/cve-comparison/',
             'http://localhost:3200/d/message-wall/',
