@@ -213,7 +213,7 @@ k8s_resource(objects=['public:namespace'], new_name='namespace-public', labels=[
 
 local('helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true', quiet=True)
 local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
-local('helm repo update', quiet=True)
+local('helm repo update prometheus-community grafana', quiet=True)
 
 # PostgreSQL (official Docker Hub image, tag from versions.env)
 pg_public_yaml = render_public('postgresql.yaml').replace(
