@@ -166,6 +166,36 @@ print('    Prometheus: ' + (prometheus_appco_svc or '(not found)'))
 print('    Grafana:    ' + (grafana_appco_svc or '(not found)'))
 print('──────────────────────────────────────────────')
 
+# ─── AppCo shadow resources ────────────────────────────────────
+# Tilt doesn't manage the AppCo Helm releases (they're installed via
+# the Application Collection UI), so they don't show up as Tilt
+# resources by default. We surface them as `local_resource` shadows:
+# the cmd just verifies the service exists; the real value is the
+# label + clickable links so the UI mirrors the public side.
+def appco_shadow(name, svc, ns, labels, links):
+    local_resource(
+        name,
+        cmd='kubectl get svc -n ' + ns + ' ' + svc + ' -o name',
+        labels=labels,
+        links=links,
+        allow_parallel=True,
+    )
+
+appco_shadow('pg-appco', pg_appco_svc, 'default',
+             ['application-collection'], [])
+
+if prometheus_appco_svc:
+    appco_shadow('prometheus-appco', prometheus_appco_svc, 'default',
+                 ['application-collection'],
+                 ['http://prometheus-appco.localhost'])
+
+if grafana_appco_svc:
+    appco_shadow('grafana-appco', grafana_appco_svc, 'default',
+                 ['application-collection'],
+                 ['http://grafana-appco.localhost',
+                  'http://grafana-appco.localhost/d/cve-comparison/',
+                  'http://grafana-appco.localhost/d/message-wall/'])
+
 # ═══════════════════════════════════════════════════════════════
 # PHASE 2 — Public Stack (namespace: public)
 #
@@ -273,6 +303,7 @@ k8s_yaml([blob(deployment_appco), blob(service_appco)])
 
 k8s_resource(
     'message-wall-appco',
+    objects=['message-wall-appco:ingress'],
     labels=['application-collection'],
     links=['http://message-wall-appco.localhost'],
 )
@@ -285,6 +316,7 @@ k8s_yaml([blob(deployment_public), blob(service_public)])
 
 k8s_resource(
     'message-wall-public',
+    objects=['message-wall-public:ingress'],
     labels=['public'],
     links=['http://message-wall-public.localhost'],
     resource_deps=['pg-public'],
@@ -317,6 +349,7 @@ k8s_yaml(blob(keycloak_appco_yaml))
 
 k8s_resource(
     'keycloak-appco',
+    objects=['keycloak-appco:ingress'],
     labels=['application-collection'],
     links=['http://keycloak-appco.localhost'],
 )
@@ -328,6 +361,7 @@ k8s_yaml(blob(keycloak_public_yaml))
 
 k8s_resource(
     'keycloak-public',
+    objects=['keycloak-public:ingress'],
     labels=['public'],
     links=['http://keycloak-public.localhost'],
     resource_deps=['pg-public-keycloak-db'],

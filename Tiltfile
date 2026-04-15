@@ -146,6 +146,7 @@ k8s_yaml([blob(deployment_yaml), blob(service_yaml)])
 
 k8s_resource(
     'message-wall',
+    objects=['message-wall:ingress'],
     labels=['public'],
     links=['http://message-wall.localhost'],
     resource_deps=['demo-postgresql'],
@@ -165,6 +166,7 @@ k8s_yaml(blob(keycloak_yaml))
 
 k8s_resource(
     'keycloak',
+    objects=['keycloak:ingress'],
     labels=['public'],
     links=['http://keycloak.localhost'],
     resource_deps=['pg-keycloak-db'],
