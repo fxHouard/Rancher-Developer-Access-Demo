@@ -24,9 +24,6 @@ TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3}"
 # the AppCo one). TRIVY_IMAGE is kept as the *scanned* public ref.
 SCANNER_IMAGE="${SCANNER_IMAGE:-dp.apps.rancher.io/containers/trivy:${APPCO_TRIVY_TAG:-0.69.3-9.1}}"
 TRIVY_CACHE="${TRIVY_CACHE:-$HOME/.cache/trivy}"
-DOCKER_CONFIG_FILE="${DOCKER_CONFIG_FILE:-$HOME/.docker/config.json}"
-# Registries we need creds for (extracted from osxkeychain at runtime).
-AUTH_REGISTRIES="${AUTH_REGISTRIES:-dp.apps.rancher.io}"
 
 echo "═══════════════════════════════════════════════════"
 echo "  Trivy Scan — host-side"
@@ -63,52 +60,21 @@ get_tilt_image() {
         | grep "^${name}:" | head -1 || echo "${name}:latest"
 }
 
-# Build a sanitized docker config.json with inline `auths`, extracted from
-# the macOS keychain. Why: the host's ~/.docker/config.json on Rancher
-# Desktop / Docker Desktop typically contains `"credsStore": "osxkeychain"`
-# and no inline auths. Mounting it as-is into the trivy container fails
-# with `docker-credential-osxkeychain: executable file not found`. So we
-# extract creds on the host (where the helper exists) and write a flat
-# config the container can use directly.
-SANITIZED_CONFIG_DIR=""
-build_sanitized_docker_config() {
-    SANITIZED_CONFIG_DIR=$(mktemp -d)
-    local cfg="$SANITIZED_CONFIG_DIR/config.json"
-    echo '{"auths":{}}' > "$cfg"
-    if ! command -v docker-credential-osxkeychain >/dev/null 2>&1; then
-        echo "  (docker-credential-osxkeychain not found — AppCo scans may fail auth)"
-        return
-    fi
-    for reg in $AUTH_REGISTRIES; do
-        local creds user pass auth
-        creds=$(echo "$reg" | docker-credential-osxkeychain get 2>/dev/null) || {
-            echo "  (no keychain entry for $reg — login first: docker login $reg)"
-            continue
-        }
-        user=$(echo "$creds" | jq -r '.Username // empty')
-        pass=$(echo "$creds" | jq -r '.Secret // empty')
-        [ -z "$user" ] || [ -z "$pass" ] && continue
-        auth=$(printf '%s:%s' "$user" "$pass" | base64 | tr -d '\n')
-        jq --arg reg "$reg" --arg auth "$auth" \
-            '.auths[$reg] = {auth: $auth}' "$cfg" > "$cfg.new" && mv "$cfg.new" "$cfg"
-        echo "  Auth ready for $reg (user: $user)"
-    done
-}
-trap '[ -n "$SANITIZED_CONFIG_DIR" ] && rm -rf "$SANITIZED_CONFIG_DIR"' EXIT
-
 run_trivy() {
     # Wraps `docker run` for trivy. Mounts:
     #   - docker.sock so trivy can scan images from the host daemon
-    #     (needed for Tilt-built images that aren't in any registry)
+    #     (every image we list comes from a running pod → already pulled
+    #     locally → trivy finds it via the daemon, no registry round-trip)
     #   - the host trivy cache so the DB persists across runs
-    #   - sanitized docker config.json for AppCo registry credentials
-    local extra_mount=""
-    [ -f "$SANITIZED_CONFIG_DIR/config.json" ] && \
-        extra_mount="-v $SANITIZED_CONFIG_DIR/config.json:/root/.docker/config.json:ro"
+    #
+    # We deliberately do NOT mount ~/.docker/config.json. Trivy doesn't
+    # need registry creds (all scanned images are local), and mounting
+    # the host config breaks trivy when it references a credsStore
+    # helper that doesn't exist inside the Linux container (e.g.
+    # docker-credential-osxkeychain on macOS).
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$TRIVY_CACHE:/root/.cache/trivy" \
-        $extra_mount \
         "$SCANNER_IMAGE" "$@"
 }
 
@@ -172,11 +138,6 @@ public-images|trivy|trivy|${PUB_TRIVY}|
 public-images|keycloak|keycloak|${PUB_KC}|
 public-images|message-wall|message-wall|${PUB_MW}|node:24
 "
-
-# ─── Build sanitized docker config from osxkeychain ──────────
-echo ""
-echo "── Extracting registry credentials from keychain ──"
-build_sanitized_docker_config
 
 # ─── Refresh DB once up front ────────────────────────────────
 # Detect first run: trivy DB lives at $TRIVY_CACHE/db/trivy.db. If absent,
