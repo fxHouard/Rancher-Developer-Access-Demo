@@ -24,6 +24,7 @@
 # ═══════════════════════════════════════════════════════════════════
 
 load('ext://restart_process', 'docker_build_with_restart')
+load('ext://helm_resource', 'helm_resource')
 
 allow_k8s_contexts('rancher-desktop')
 
@@ -233,28 +234,51 @@ local_resource(
 )
 
 # Prometheus (official prom/prometheus from Docker Hub, tag from versions.env)
-local_resource(
+helm_resource(
     'prometheus-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f ../values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus-public.localhost --wait --cleanup-on-fail --timeout 5m',
+    'prometheus-community/prometheus',
+    namespace='public',
+    flags=[
+        '-f', '../values_yaml/prometheus.yaml',
+        '--set', 'server.image.tag=' + PROMETHEUS_TAG,
+        '--set', 'server.ingress.hosts[0]=prometheus-public.localhost',
+        '--create-namespace', # Replaces the kubectl get/wait ns logic
+        '--cleanup-on-fail'
+    ]
+)
+
+k8s_resource(
+    'prometheus-public',
     labels=['public'],
     links=['http://prometheus-public.localhost'],
-    resource_deps=['pg-public'],
+    resource_deps=['pg-public']
 )
 
 # Grafana (official grafana/grafana from Docker Hub, tag from versions.env)
 # Distinct ingress host (grafana-public.localhost) → isolated cookie jar
 # from AppCo grafana, so login on one doesn't kick the other out.
-local_resource(
+helm_resource(
     'grafana-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f ../values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana-public.localhost --wait --cleanup-on-fail --timeout 5m',
+    'grafana/grafana',
+    namespace='public',
+    flags=[
+        '-f', '../values_yaml/grafana.yaml',
+        '--set', 'image.tag=' + GRAFANA_TAG,
+        '--set', 'ingress.hosts[0]=grafana-public.localhost',
+        '--create-namespace', # Replaces the kubectl get/wait ns logic
+        '--cleanup-on-fail'
+    ]
+)
+
+k8s_resource(
+    'grafana-public',
     labels=['public'],
     links=[
         'http://grafana-public.localhost',
         'http://grafana-public.localhost/d/message-wall-public/',
     ],
-    resource_deps=['pg-public'],
+    resource_deps=['pg-public']
 )
-
 # ═══════════════════════════════════════════════════════════════
 # PHASE 3 — Message Wall app (two builds, two variants)
 #
@@ -265,7 +289,7 @@ local_resource(
 docker_build_with_restart(
     'message-wall-appco',
     '..',
-    dockerfile='Dockerfile.appco',
+    dockerfile='Containerfile.appco',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     live_update=[
@@ -278,7 +302,7 @@ docker_build_with_restart(
 docker_build_with_restart(
     'message-wall-public',
     '..',
-    dockerfile='Dockerfile.public',
+    dockerfile='Containerfile.public',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     build_args={'NODE_TAG': NODE_TAG},
@@ -394,7 +418,7 @@ local_resource(
 docker_build(
     'cve-exporter',
     '.',
-    dockerfile='Dockerfile.cve-exporter',
+    dockerfile='Containerfile.cve-exporter',
     only=['scripts/cve-exporter.py'],
 )
 
