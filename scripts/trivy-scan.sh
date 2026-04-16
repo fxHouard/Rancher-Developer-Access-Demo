@@ -75,9 +75,9 @@ echo ""
 echo "── Discovering images from running pods... ──"
 
 PUB_PG=$(get_pod_image "$NS" "app.kubernetes.io/name=postgresql" "postgresql")
-PUB_PROM=$(get_pod_image "$NS" "app.kubernetes.io/instance=prometheus,app.kubernetes.io/component=server" "prometheus-server")
-PUB_NODEEXP=$(get_pod_image "$NS" "app.kubernetes.io/instance=prometheus,app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
-PUB_GRAF=$(get_pod_image "$NS" "app.kubernetes.io/instance=grafana" "grafana")
+PUB_PROM=$(get_pod_image "$NS" "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/component=server" "prometheus-server")
+PUB_NODEEXP=$(get_pod_image "$NS" "app.kubernetes.io/instance=prometheus-public,app.kubernetes.io/name=prometheus-node-exporter" "node-exporter")
+PUB_GRAF=$(get_pod_image "$NS" "app.kubernetes.io/instance=grafana-public,app.kubernetes.io/name=grafana" "grafana-public")
 PUB_KC=$(get_pod_image "$NS" "app=keycloak,variant=public" "keycloak")
 PUB_MW=$(get_tilt_image "message-wall")
 PUB_TRIVY="${TRIVY_IMAGE}"

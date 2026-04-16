@@ -116,10 +116,10 @@ The Grafana CVE comparison dashboard shows:
 
 | Component | AppCo (SUSE) | Public |
 |---|---|---|
-| PostgreSQL | `dp.apps.rancher.io/charts/postgresql` | `docker.io/library/postgres:18` |
+| PostgreSQL | `dp.apps.rancher.io/charts/postgresql` | `postgres:18` |
 | Prometheus | `dp.apps.rancher.io/charts/prometheus` | `prom/prometheus:v3.10.0` |
 | Node-Exporter | AppCo (bundled with Prometheus) | upstream |
 | Grafana | `dp.apps.rancher.io/charts/grafana` | `grafana/grafana:12.4.0` |
 | Keycloak | `dp.apps.rancher.io/containers/keycloak` | `quay.io/keycloak/keycloak:26.5.4` |
-| Message-Wall | AppCo Node.js base | `docker.io/library/node:24` |
+| Message-Wall | AppCo Node.js base | `node:24` |
 | Trivy | `dp.apps.rancher.io/containers/trivy` | `docker.io/aquasec/trivy` |

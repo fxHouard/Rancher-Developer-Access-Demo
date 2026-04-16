@@ -12,12 +12,12 @@
 #   cd "Rancher Developer Access" && tilt up
 #
 # Components (7 apps × 2 variants = 14 images scanned):
-#   • PostgreSQL    — AppCo vs docker.io/library/postgres:18
+#   • PostgreSQL    — AppCo vs postgres:18
 #   • Prometheus    — AppCo vs docker.io/prom/prometheus:v3.10.0
 #   • Node-Exporter — AppCo vs upstream
 #   • Grafana       — AppCo vs docker.io/grafana/grafana:12.4.0
 #   • Keycloak      — AppCo vs quay.io/keycloak/keycloak:26.5.4
-#   • Message-Wall  — AppCo base vs docker.io/library/node:24 base
+#   • Message-Wall  — AppCo base vs node:24 base
 #   • Trivy         — AppCo vs aquasec/trivy
 #
 # CVE Pipeline:  trivy scan → JSON → ConfigMap → exporter → Prometheus → Grafana

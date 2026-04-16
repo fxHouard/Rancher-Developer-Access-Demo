@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
         - name: postgresql
-          image: docker.io/library/postgres:PLACEHOLDER_POSTGRES_TAG
+          image: postgres:PLACEHOLDER_POSTGRES_TAG
           ports:
             - containerPort: 5432
           env:

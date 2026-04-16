@@ -6,11 +6,11 @@
 # comparison demo (which uses `default` for AppCo workloads).
 #
 # Components:
-#   • PostgreSQL   — docker.io/library/postgres
+#   • PostgreSQL   — postgres
 #   • Prometheus   — prom/prometheus (Helm)
 #   • Grafana      — grafana/grafana (Helm)
 #   • Keycloak     — quay.io/keycloak/keycloak
-#   • Message-Wall — Built on docker.io/library/node base
+#   • Message-Wall — Built on node base
 #
 # CVE scanning with Trivy is included — results are displayed
 # in a Grafana dashboard.
