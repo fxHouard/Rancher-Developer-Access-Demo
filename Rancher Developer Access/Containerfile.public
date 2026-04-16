@@ -1,4 +1,4 @@
-ARG NODE_TAG=24
+ARG NODE_TAG=24 
 FROM node:${NODE_TAG}
 WORKDIR /app
 COPY package.json ./

@@ -532,9 +532,9 @@ local_resource(
     'trivy-scan',
     cmd='TRIVY_IMAGE=aquasec/trivy:' + TRIVY_TAG + ' APPCO_TRIVY_TAG=' + APPCO_TRIVY_TAG + ' bash scripts/trivy-scan.sh',
     labels=['cve-comparison'],
-    resource_deps=['message-wall-appco', 'message-wall-public',
-                   'keycloak-appco', 'keycloak-public',
-                   'pg-public', 'prometheus-public', 'grafana-public'],
+    trigger_mode=TRIGGER_MODE_MANUAL,
+    auto_init=False,
+
 )
 
 # No cve-exporter restart after trivy-scan.
