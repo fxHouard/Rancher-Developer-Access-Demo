@@ -6,11 +6,11 @@
 # comparison demo (which uses `default` for AppCo workloads).
 #
 # Components:
-#   • PostgreSQL   — docker.io/library/postgres
+#   • PostgreSQL   — postgres
 #   • Prometheus   — prom/prometheus (Helm)
 #   • Grafana      — grafana/grafana (Helm)
 #   • Keycloak     — quay.io/keycloak/keycloak
-#   • Message-Wall — Built on docker.io/library/node base
+#   • Message-Wall — Built on node base
 #
 # CVE scanning with Trivy is included — results are displayed
 # in a Grafana dashboard.
@@ -20,6 +20,8 @@
 # ═══════════════════════════════════════════════════════════════════
 
 load('ext://restart_process', 'docker_build_with_restart')
+load('ext://helm_resource', 'helm_resource')
+#load('./platform_tilt.py', 'docker_build', 'docker_build_with_restart')
 
 allow_k8s_contexts('rancher-desktop')
 
@@ -87,28 +89,64 @@ k8s_resource(
     labels=['public'],
 )
 
-# Prometheus (via Helm)
-local('helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true', quiet=True)
-local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
-local('helm repo update', quiet=True)
 
+# Prometheus (via Helm)
+=======
+# Ensure keycloak DB in PostgreSQL (wait for pod to be ready)
 local_resource(
-    'prometheus',
-    cmd='helm upgrade --install prometheus prometheus-community/prometheus --namespace ' + NS + ' -f values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus-public.localhost --wait --cleanup-on-fail --timeout 5m',
+    'pg-keycloak-db',
+    cmd="kubectl -n " + NS + " wait --for=condition=ready pod/demo-postgresql-0 --timeout=120s && (kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\" | grep -q 1 || kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak')",
     labels=['public'],
-    links=['http://prometheus-public.localhost'],
     resource_deps=['demo-postgresql'],
 )
 
-# Grafana (via Helm)
-local_resource(
-    'grafana',
-    cmd='helm upgrade --install grafana grafana/grafana --namespace ' + NS + ' -f values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana-public.localhost --wait --cleanup-on-fail --timeout 5m',
+local('helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true', quiet=True)
+local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
+local('helm repo update prometheus-community grafana', quiet=True)
+
+# Prometheus (official prom/prometheus from Docker Hub, tag from versions.env)
+helm_resource(
+    'prometheus-public',
+    'prometheus-community/prometheus',
+    namespace='public',
+    flags=[
+        '-f', 'values_yaml/prometheus.yaml',
+        '--set', 'server.image.tag=' + PROMETHEUS_TAG,
+        '--set', 'server.ingress.hosts[0]=prometheus-public.localhost',
+        '--create-namespace', # Replaces the kubectl get/wait ns logic
+        '--cleanup-on-fail'
+    ]
+)
+
+k8s_resource(
+    'prometheus-public',
+    labels=['public'],
+    links=['http://prometheus-public.localhost'],
+    resource_deps=['demo-postgresql']
+)
+
+# Grafana (official grafana/grafana from Docker Hub, tag from versions.env)
+# Distinct ingress host (grafana-public.localhost) → isolated cookie jar
+# from AppCo grafana, so login on one doesn't kick the other out.
+helm_resource(
+    'grafana-public',
+    'grafana/grafana',
+    namespace='public',
+    flags=[
+        '-f', 'values_yaml/grafana.yaml',
+        '--set', 'image.tag=' + GRAFANA_TAG,
+        '--set', 'ingress.hosts[0]=grafana-public.localhost',
+        '--create-namespace', # Replaces the kubectl get/wait ns logic
+        '--cleanup-on-fail'
+    ]
+)
+
+k8s_resource(
+    'grafana-public',
     labels=['public'],
     links=[
         'http://grafana-public.localhost',
-        'http://grafana-public.localhost/d/message-wall/',
-        'http://grafana-public.localhost/d/cve-scan/',
+        'http://grafana-public.localhost/d/message-wall-public/',
     ],
     resource_deps=['demo-postgresql'],
 )
@@ -120,7 +158,7 @@ local_resource(
 docker_build_with_restart(
     'message-wall',
     '.',
-    dockerfile='Dockerfile',
+    dockerfile='Containerfile',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     build_args={'NODE_TAG': NODE_TAG},
@@ -185,7 +223,7 @@ local_resource(
 docker_build(
     'cve-exporter',
     '.',
-    dockerfile='Dockerfile.cve-exporter',
+    dockerfile='Containerfile.cve-exporter',
     only=['scripts/cve-exporter.py'],
 )
 
@@ -204,7 +242,7 @@ local_resource(
     cmd='TRIVY_IMAGE=aquasec/trivy:' + TRIVY_TAG + ' NS=' + NS + ' bash scripts/trivy-scan.sh',
     labels=['cve-scan'],
     resource_deps=['message-wall', 'keycloak',
-                   'demo-postgresql', 'prometheus', 'grafana'],
+                   'demo-postgresql', 'prometheus-public', 'grafana-public'],
 )
 
 # No cve-exporter restart after trivy-scan.
@@ -233,7 +271,7 @@ k8s_yaml([blob(dash_mw), blob(dash_cve)])
 # in the Tilt UI even when prometheus_svc discovery fails below.
 k8s_resource(
     objects=['message-wall-dashboard:configmap',
-             'cve-dashboard:configmap'],
+             'cve-public-dashboard:configmap'],
     new_name='grafana-dashboards',
     labels=['public'],
 )
@@ -245,7 +283,7 @@ k8s_resource(
 #
 # Datasource still uses the in-cluster Service DNS (Helm release name
 # is deterministic).
-PROMETHEUS_SVC = 'prometheus-server'
+PROMETHEUS_SVC = 'prometheus-public-server'
 
 datasource_cm = """apiVersion: v1
 kind: ConfigMap

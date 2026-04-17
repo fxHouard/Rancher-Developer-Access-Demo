@@ -12,18 +12,20 @@
 #   cd "Rancher Developer Access" && tilt up
 #
 # Components (7 apps × 2 variants = 14 images scanned):
-#   • PostgreSQL    — AppCo vs docker.io/library/postgres:18
+#   • PostgreSQL    — AppCo vs postgres:18
 #   • Prometheus    — AppCo vs docker.io/prom/prometheus:v3.10.0
 #   • Node-Exporter — AppCo vs upstream
 #   • Grafana       — AppCo vs docker.io/grafana/grafana:12.4.0
 #   • Keycloak      — AppCo vs quay.io/keycloak/keycloak:26.5.4
-#   • Message-Wall  — AppCo base vs docker.io/library/node:24 base
+#   • Message-Wall  — AppCo base vs node:24 base
 #   • Trivy         — AppCo vs aquasec/trivy
 #
 # CVE Pipeline:  trivy scan → JSON → ConfigMap → exporter → Prometheus → Grafana
 # ═══════════════════════════════════════════════════════════════════
 
 load('ext://restart_process', 'docker_build_with_restart')
+#load('./platform_tilt.py', 'docker_build', 'docker_build_with_restart')
+load('ext://helm_resource', 'helm_resource')
 
 allow_k8s_contexts('rancher-desktop')
 
@@ -211,7 +213,7 @@ k8s_resource(objects=['public:namespace'], new_name='namespace-public', labels=[
 
 local('helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true', quiet=True)
 local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
-local('helm repo update', quiet=True)
+local('helm repo update prometheus-community grafana', quiet=True)
 
 # PostgreSQL (official Docker Hub image, tag from versions.env)
 pg_public_yaml = render_public('postgresql.yaml').replace(
@@ -233,28 +235,51 @@ local_resource(
 )
 
 # Prometheus (official prom/prometheus from Docker Hub, tag from versions.env)
-local_resource(
+helm_resource(
     'prometheus-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install prometheus-public prometheus-community/prometheus --namespace public -f ../values_yaml/prometheus.yaml --set server.image.tag=' + PROMETHEUS_TAG + ' --set server.ingress.hosts[0]=prometheus-public.localhost --wait --cleanup-on-fail --timeout 5m',
+    'prometheus-community/prometheus',
+    namespace='public',
+    flags=[
+        '-f', '../values_yaml/prometheus.yaml',
+        '--set', 'server.image.tag=' + PROMETHEUS_TAG,
+        '--set', 'server.ingress.hosts[0]=prometheus-public.localhost',
+        '--create-namespace', # Replaces the kubectl get/wait ns logic
+        '--cleanup-on-fail'
+    ]
+)
+
+k8s_resource(
+    'prometheus-public',
     labels=['public'],
     links=['http://prometheus-public.localhost'],
-    resource_deps=['pg-public'],
+    resource_deps=['pg-public']
 )
 
 # Grafana (official grafana/grafana from Docker Hub, tag from versions.env)
 # Distinct ingress host (grafana-public.localhost) → isolated cookie jar
 # from AppCo grafana, so login on one doesn't kick the other out.
-local_resource(
+helm_resource(
     'grafana-public',
-    cmd='kubectl get ns public -o name 2>/dev/null || kubectl wait --for=jsonpath=.status.phase=Active ns/public --timeout=30s && helm upgrade --install grafana-public grafana/grafana --namespace public -f ../values_yaml/grafana.yaml --set image.tag=' + GRAFANA_TAG + ' --set ingress.hosts[0]=grafana-public.localhost --wait --cleanup-on-fail --timeout 5m',
+    'grafana/grafana',
+    namespace='public',
+    flags=[
+        '-f', '../values_yaml/grafana.yaml',
+        '--set', 'image.tag=' + GRAFANA_TAG,
+        '--set', 'ingress.hosts[0]=grafana-public.localhost',
+        '--create-namespace', # Replaces the kubectl get/wait ns logic
+        '--cleanup-on-fail'
+    ]
+)
+
+k8s_resource(
+    'grafana-public',
     labels=['public'],
     links=[
         'http://grafana-public.localhost',
         'http://grafana-public.localhost/d/message-wall-public/',
     ],
-    resource_deps=['pg-public'],
+    resource_deps=['pg-public']
 )
-
 # ═══════════════════════════════════════════════════════════════
 # PHASE 3 — Message Wall app (two builds, two variants)
 #
@@ -265,7 +290,7 @@ local_resource(
 docker_build_with_restart(
     'message-wall-appco',
     '..',
-    dockerfile='Dockerfile.appco',
+    dockerfile='Containerfile.appco',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     live_update=[
@@ -278,7 +303,7 @@ docker_build_with_restart(
 docker_build_with_restart(
     'message-wall-public',
     '..',
-    dockerfile='Dockerfile.public',
+    dockerfile='Containerfile.public',
     entrypoint=['node', 'src/server.js'],
     only=['src/', 'package.json'],
     build_args={'NODE_TAG': NODE_TAG},
@@ -395,7 +420,7 @@ local_resource(
 docker_build(
     'cve-exporter',
     '.',
-    dockerfile='Dockerfile.cve-exporter',
+    dockerfile='Containerfile.cve-exporter',
     only=['scripts/cve-exporter.py'],
 )
 
@@ -509,9 +534,9 @@ local_resource(
     'trivy-scan',
     cmd='TRIVY_IMAGE=aquasec/trivy:' + TRIVY_TAG + ' APPCO_TRIVY_TAG=' + APPCO_TRIVY_TAG + ' bash scripts/trivy-scan.sh',
     labels=['cve-comparison'],
-    resource_deps=['message-wall-appco', 'message-wall-public',
-                   'keycloak-appco', 'keycloak-public',
-                   'pg-public', 'prometheus-public', 'grafana-public'],
+    trigger_mode=TRIGGER_MODE_MANUAL,
+    auto_init=False,
+
 )
 
 # No cve-exporter restart after trivy-scan.

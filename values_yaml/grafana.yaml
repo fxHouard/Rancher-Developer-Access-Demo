@@ -29,3 +29,8 @@ sidecar:
     enabled: true
   datasources:
     enabled: true
+
+persistence:
+  resources:
+    requests:
+      storage: 1Gi
