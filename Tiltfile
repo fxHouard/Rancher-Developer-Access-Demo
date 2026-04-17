@@ -87,14 +87,6 @@ k8s_resource(
     labels=['public'],
 )
 
-# Ensure keycloak DB in PostgreSQL (wait for pod to be ready)
-local_resource(
-    'pg-keycloak-db',
-    cmd="kubectl -n " + NS + " wait --for=condition=ready pod/demo-postgresql-0 --timeout=120s && (kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\" | grep -q 1 || kubectl -n " + NS + " exec demo-postgresql-0 -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak')",
-    labels=['public'],
-    resource_deps=['demo-postgresql'],
-)
-
 # Prometheus (via Helm)
 local('helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true', quiet=True)
 local('helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true', quiet=True)
@@ -149,15 +141,17 @@ k8s_resource(
     objects=['message-wall:ingress'],
     labels=['public'],
     links=['http://message-wall-public.localhost'],
-    resource_deps=['demo-postgresql'],
+    resource_deps=['demo-postgresql', 'keycloak-realm-setup'],
 )
 
 # ═══════════════════════════════════════════════════════════════
 # PHASE 3 — Keycloak (Identity & Access Management)
 # ═══════════════════════════════════════════════════════════════
 
-# Keycloak realm ConfigMap
-local('kubectl create configmap keycloak-realm --namespace ' + NS + ' --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml | kubectl apply -f -', quiet=True)
+# Keycloak realm ConfigMap (Tilt-tracked so it survives tilt down / up cycles)
+keycloak_realm_cm = local('kubectl create configmap keycloak-realm --namespace ' + NS + ' --from-file=message-wall.json=k8s/shared/keycloak-realm.json --dry-run=client -o yaml', quiet=True)
+k8s_yaml(blob(str(keycloak_realm_cm)))
+k8s_resource(objects=['keycloak-realm:configmap:' + NS], new_name='keycloak-realm-cm', labels=['public'])
 
 # Keycloak (upstream Quay.io image)
 keycloak_yaml = in_ns(str(read_file('k8s/keycloak.yaml')).replace(
@@ -169,7 +163,7 @@ k8s_resource(
     objects=['keycloak:ingress'],
     labels=['public'],
     links=['http://keycloak-public.localhost'],
-    resource_deps=['pg-keycloak-db'],
+    resource_deps=['demo-postgresql'],
 )
 
 # Keycloak realm setup via Admin REST API (idempotent).
