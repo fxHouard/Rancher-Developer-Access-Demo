@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-public
+  namespace: public
+  labels:
+    app: keycloak
+    variant: public
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+      variant: public
+  template:
+    metadata:
+      labels:
+        app: keycloak
+        variant: public
+    spec:
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm-public
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:PLACEHOLDER_KEYCLOAK_TAG
+          args: ["start-dev", "--health-enabled=true", "--import-realm"]
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://pg-public-postgresql:5432/keycloak
+            - name: KC_DB_USERNAME
+              value: demo
+            - name: KC_DB_PASSWORD
+              value: demo
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: admin
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-public
+  namespace: public
+  labels:
+    app: keycloak
+    variant: public
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: keycloak
+    variant: public

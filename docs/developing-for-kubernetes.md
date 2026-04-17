@@ -460,7 +460,8 @@ global:
 **values_yaml/prometheus.yaml:**
 ```yaml
 alertmanager:
-  enabled: false
+  service:
+    type: NodePort
 global:
   imagePullSecrets:
   - application-collection

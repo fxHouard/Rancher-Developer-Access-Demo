@@ -1,0 +1,22 @@
+# Grafana (Public grafana/grafana variant)
+# Pinned to 12.4.0 to match AppCo version
+image:
+  repository: grafana/grafana
+  tag: "12.4.2"
+
+adminPassword: demo
+
+# ClusterIP — accessed via port-forward, avoids NodePort conflicts with AppCo
+service:
+  type: ClusterIP
+
+sidecar:
+  dashboards:
+    enabled: true
+  datasources:
+    enabled: true
+
+# Unique cookie name to avoid session conflicts with AppCo Grafana
+grafana.ini:
+  auth:
+    login_cookie_name: grafana_public_session

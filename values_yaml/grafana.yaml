@@ -1,36 +1,15 @@
-# Grafana (Public grafana/grafana variant)
-# Pinned to 12.4.2 to match AppCo version
-image:
-  registry: docker.io
-  repository: grafana/grafana
-  tag: "12.4.2"
-
+# Grafana (AppCo variant)
 adminPassword: demo
 
-# ClusterIP — exposed via Traefik ingress (*.localhost)
-service:
-  type: ClusterIP
+global:
+  imagePullSecrets:
+  - application-collection
 
-# Traefik ingress. Both the root demo and the RDA Public variant
-# expose Grafana on grafana-public.localhost (same stack, two
-# orchestrators). Hostname is set via helm --set from each Tiltfile.
-# Traefik auto-binds 127.0.0.1:80 on Rancher Desktop (klipper-lb), and
-# browsers short-circuit *.localhost → 127.0.0.1 per RFC 6761 → no DNS,
-# no /etc/hosts, no per-service port-forward.
-ingress:
-  enabled: true
-  ingressClassName: traefik
-  hosts:
-    - grafana-public.localhost
-  path: /
+service:
+  type: NodePort
 
 sidecar:
   dashboards:
     enabled: true
   datasources:
     enabled: true
-
-persistence:
-  resources:
-    requests:
-      storage: 1Gi

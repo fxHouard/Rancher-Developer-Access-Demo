@@ -1,4 +1,4 @@
-# Rancher Developer Access — CVE Comparison (AppCo vs Public Images)
+# Shadow CVE Comparison — AppCo vs Public Images
 
 Extended demo that deploys the same application stack **twice** — once with SUSE Application Collection images, once with popular public upstream images — then scans everything with Trivy to compare CVE counts side by side in a Grafana dashboard.
 
@@ -42,27 +42,24 @@ Extended demo that deploys the same application stack **twice** — once with SU
 If you already ran `tilt up` from the parent directory:
 
 ```bash
-cd "Rancher Developer Access"
+cd shadow
 tilt up
 ```
 
-This Tiltfile detects the existing AppCo services and reuses them.
+The shadow Tiltfile detects the existing AppCo services and reuses them.
 
 ### Option B — Fresh start
 
-If AppCo is not yet deployed, first install via the Application Collection UI.
-**For each chart, paste the matching `values_yaml/*.yaml` into the UI's
-"Values YAML" field** — these enable the Traefik ingress on
-`*-appco.localhost` so you can browse without `kubectl port-forward`:
+If AppCo is not yet deployed, first install via the Application Collection UI:
 
-1. **PostgreSQL** with `values_yaml/postgresql.yaml`
-2. **Prometheus** with `values_yaml/prometheus.yaml`  → exposes `http://prometheus-appco.localhost`
-3. **Grafana** with `values_yaml/grafana.yaml`        → exposes `http://grafana-appco.localhost`
+1. **PostgreSQL** with `../values_yaml/postgresql.yaml`
+2. **Prometheus** with `../values_yaml/prometheus.yaml`
+3. **Grafana** with `../values_yaml/grafana.yaml`
 
 Then:
 
 ```bash
-cd "Rancher Developer Access"
+cd shadow
 tilt up
 ```
 
@@ -80,24 +77,15 @@ Tilt will automatically:
 
 ## URLs
 
-All UIs are exposed through Traefik ingress on `*.localhost`. No
-`kubectl port-forward`, no `/etc/hosts`: Rancher Desktop's klipper-lb
-auto-binds Traefik on `127.0.0.1:80`, and browsers short-circuit
-`*.localhost → 127.0.0.1` per RFC 6761.
-
-Distinct hostnames per variant ⇒ each Keycloak / Grafana owns its
-own cookie jar, so logging into one doesn't kick you out of the other.
-
 | Resource | URL | Description |
 |---|---|---|
-| Message Wall (AppCo) | http://message-wall-appco.localhost | AppCo variant |
-| Message Wall (Public) | http://message-wall-public.localhost | Public variant |
-| Keycloak (AppCo) | http://keycloak-appco.localhost | AppCo Keycloak |
-| Keycloak (Public) | http://keycloak-public.localhost | Public Keycloak |
-| Grafana (AppCo) | http://grafana-appco.localhost | CVE comparison dashboard |
-| Grafana (Public) | http://grafana-public.localhost | Public monitoring |
-| Prometheus (AppCo) | http://prometheus-appco.localhost | AppCo metrics |
-| Prometheus (Public) | http://prometheus-public.localhost | Public metrics |
+| Message Wall (AppCo) | http://localhost:3000 | AppCo variant |
+| Message Wall (Public) | http://localhost:3100 | Public variant |
+| Keycloak (AppCo) | http://localhost:8080 | AppCo Keycloak |
+| Keycloak (Public) | http://localhost:8180 | Public Keycloak |
+| Grafana (AppCo) | http://localhost:3200 | CVE comparison dashboard |
+| Grafana (Public) | http://localhost:3300 | Public monitoring |
+| Prometheus (AppCo) | http://localhost:9190 | AppCo metrics |
 | Tilt Dashboard | http://localhost:10350 | Orchestration overview |
 
 ## CVE Pipeline
@@ -116,10 +104,11 @@ The Grafana CVE comparison dashboard shows:
 
 | Component | AppCo (SUSE) | Public |
 |---|---|---|
-| PostgreSQL | `dp.apps.rancher.io/charts/postgresql` | `postgres:18` |
+| PostgreSQL | `dp.apps.rancher.io/charts/postgresql` | `docker.io/library/postgres:18` |
 | Prometheus | `dp.apps.rancher.io/charts/prometheus` | `prom/prometheus:v3.10.0` |
+| Alertmanager | AppCo (bundled with Prometheus) | upstream |
 | Node-Exporter | AppCo (bundled with Prometheus) | upstream |
 | Grafana | `dp.apps.rancher.io/charts/grafana` | `grafana/grafana:12.4.0` |
 | Keycloak | `dp.apps.rancher.io/containers/keycloak` | `quay.io/keycloak/keycloak:26.5.4` |
-| Message-Wall | AppCo Node.js base | `node:24` |
+| Message-Wall | AppCo Node.js base | `docker.io/library/node:24` |
 | Trivy | `dp.apps.rancher.io/containers/trivy` | `docker.io/aquasec/trivy` |
