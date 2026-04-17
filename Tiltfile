@@ -144,7 +144,7 @@ k8s_resource(
     links=[
         'http://grafana-public.localhost',
         'http://grafana-public.localhost/d/message-wall-public/',
-        'http://grafana-public.localhost/d/cve-scan/',
+        'http://grafana-public.localhost/d/cve-public-scan/',
     ],
     resource_deps=['demo-postgresql'],
 )

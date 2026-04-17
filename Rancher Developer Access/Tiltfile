@@ -273,6 +273,7 @@ k8s_resource(
     links=[
         'http://grafana-public.localhost',
         'http://grafana-public.localhost/d/message-wall-public/',
+        'http://grafana-public.localhost/d/cve-public-scan/',
     ],
     resource_deps=['pg-public']
 )
@@ -434,6 +435,14 @@ k8s_yaml('k8s/shared/grafana-dashboard.yaml')
 k8s_yaml('k8s/shared/grafana-dashboard-public.yaml')
 k8s_yaml('k8s/shared/grafana-cve-dashboard.yaml')
 
+# Also mirror the root demo's public-only CVE dashboard into the
+# `public` namespace so Public Grafana picks it up alongside the
+# comparison dashboard in AppCo Grafana. Same ConfigMap, different ns.
+cve_public_dash = str(read_file('../k8s/shared/grafana-cve-dashboard.yaml')).replace(
+    'metadata:\n  name: ',
+    'metadata:\n  namespace: public\n  name: ')
+k8s_yaml(blob(cve_public_dash))
+
 # Label each dashboard ConfigMap under the variant it visualizes, so the
 # Tilt UI grouping mirrors the deployment story:
 #   - AppCo message-wall dashboard       → application-collection bucket
@@ -453,6 +462,11 @@ k8s_resource(
     objects=['cve-comparison-dashboard:configmap'],
     new_name='grafana-dashboard-cve',
     labels=['cve-comparison'],
+)
+k8s_resource(
+    objects=['cve-public-dashboard:configmap:public'],
+    new_name='grafana-dashboard-cve-public',
+    labels=['public'],
 )
 
 # AppCo Grafana / Prometheus ingresses are owned by their Helm
