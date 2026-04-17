@@ -89,9 +89,6 @@ k8s_resource(
     labels=['public'],
 )
 
-
-# Prometheus (via Helm)
-=======
 # Ensure keycloak DB in PostgreSQL (wait for pod to be ready)
 local_resource(
     'pg-keycloak-db',
@@ -201,7 +198,7 @@ k8s_resource(
     objects=['keycloak:ingress'],
     labels=['public'],
     links=['http://keycloak-public.localhost'],
-    resource_deps=['demo-postgresql'],
+    resource_deps=['pg-keycloak-db'],
 )
 
 # Keycloak realm setup via Admin REST API (idempotent).
