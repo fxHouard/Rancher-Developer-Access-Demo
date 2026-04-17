@@ -31,6 +31,7 @@ sidecar:
     enabled: true
 
 persistence:
+  enabled: true
   resources:
     requests:
       storage: 1Gi
