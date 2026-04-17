@@ -21,6 +21,7 @@
 
 load('ext://restart_process', 'docker_build_with_restart')
 load('ext://helm_resource', 'helm_resource')
+#load('./platform_tilt.py', 'docker_build', 'docker_build_with_restart')
 
 allow_k8s_contexts('rancher-desktop')
 

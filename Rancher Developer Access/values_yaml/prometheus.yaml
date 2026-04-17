@@ -1,26 +1,26 @@
-# Prometheus (AppCo variant)
-
-# Alertmanager is not used by this demo
 alertmanager:
   enabled: false
-
-# Disable kube-state-metrics — not part of the CVE comparison
-kubeStateMetrics:
-  enabled: false
-
-image:
-  tag: "3.11.2-1.4"
-
+configmapReload:
+  prometheus:
+    image:
+      tag: 0.90.1-14.4
 global:
   imagePullSecrets:
-  - application-collection
-
-# Traefik ingress — http://prometheus-appco.localhost
-# (see values_yaml/grafana.yaml comment for rationale)
+    - application-collection
+kubeStateMetrics:
+  enabled: false
+persistence:
+  resources:
+    requests:
+      storage: 1Gi
 server:
+  image:
+    tag: 3.11.2-1.4
   ingress:
     enabled: true
-    ingressClassName: traefik
     hosts:
       - prometheus-appco.localhost
+    ingressClassName: traefik
     path: /
+  persistentVolume:
+    size: 1Gi

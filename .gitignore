@@ -2,3 +2,4 @@
 node_modules
 package-lock.json
 platform_tilt.py
+Rancher Developer Access/platform_tilt.py

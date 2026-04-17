@@ -6,7 +6,13 @@ auth:
   username: demo
   password: demo
 image:
-  tag: "18.3-7.4"
+  postgresql:
+    tag: "18.3-7.4"
+
+persistence:
+  resources:
+    requests:
+      storage: 1Gi
 
 global:
   imagePullSecrets:
