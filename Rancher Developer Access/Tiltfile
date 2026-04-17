@@ -329,6 +329,7 @@ k8s_resource(
     objects=['message-wall-appco:ingress'],
     labels=['application-collection'],
     links=['http://message-wall-appco.localhost'],
+    resource_deps=['keycloak-realm-setup-appco'],
 )
 
 # Deploy Public message-wall (public namespace)
@@ -342,7 +343,7 @@ k8s_resource(
     objects=['message-wall-public:ingress'],
     labels=['public'],
     links=['http://message-wall-public.localhost'],
-    resource_deps=['pg-public'],
+    resource_deps=['pg-public', 'keycloak-realm-setup-public'],
 )
 
 # ═══════════════════════════════════════════════════════════════
