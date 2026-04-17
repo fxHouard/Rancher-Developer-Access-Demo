@@ -12,13 +12,15 @@
 #   cd "Rancher Developer Access" && tilt up
 #
 # Components (7 apps × 2 variants = 14 images scanned):
-#   • PostgreSQL    — AppCo vs postgres:18
-#   • Prometheus    — AppCo vs docker.io/prom/prometheus:v3.10.0
+#   • PostgreSQL    — AppCo vs postgres
+#   • Prometheus    — AppCo vs prom/prometheus
 #   • Node-Exporter — AppCo vs upstream
-#   • Grafana       — AppCo vs docker.io/grafana/grafana:12.4.0
-#   • Keycloak      — AppCo vs quay.io/keycloak/keycloak:26.5.4
-#   • Message-Wall  — AppCo base vs node:24 base
+#   • Grafana       — AppCo vs grafana/grafana
+#   • Keycloak      — AppCo vs quay.io/keycloak/keycloak
+#   • Message-Wall  — AppCo base vs node base
 #   • Trivy         — AppCo vs aquasec/trivy
+#
+# All public image tags are pinned in versions.env (single source of truth).
 #
 # CVE Pipeline:  trivy scan → JSON → ConfigMap → exporter → Prometheus → Grafana
 # ═══════════════════════════════════════════════════════════════════
@@ -136,18 +138,15 @@ pg_appco_svc = find_service(
     name='PostgreSQL (AppCo)',
 )
 
-# Ensure keycloak DB exists in AppCo PostgreSQL
-pg_pod = str(local(
-    "kubectl get pods -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}'",
-    quiet=True,
-)).strip()
-
-local(
-    "kubectl exec " + pg_pod +
-    " -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\"" +
-    " | grep -q 1 || kubectl exec " + pg_pod +
-    " -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak'",
-    quiet=True,
+# Ensure keycloak DB exists in AppCo PostgreSQL (async, like the public side)
+local_resource(
+    'pg-appco-keycloak-db',
+    cmd="PG_POD=$(kubectl get pods -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') && "
+        "kubectl wait --for=condition=ready pod/$PG_POD --timeout=120s && "
+        "(kubectl exec $PG_POD -- env PGPASSWORD=demo psql -U demo -tc \"SELECT 1 FROM pg_database WHERE datname='keycloak'\" | grep -q 1 || "
+        "kubectl exec $PG_POD -- env PGPASSWORD=demo psql -U demo -c 'CREATE DATABASE keycloak')",
+    labels=['application-collection'],
+    resource_deps=['pg-appco'],
 )
 
 prometheus_appco_svc = find_service(
@@ -376,6 +375,7 @@ k8s_resource(
     objects=['keycloak-appco:ingress'],
     labels=['application-collection'],
     links=['http://keycloak-appco.localhost'],
+    resource_deps=['pg-appco-keycloak-db'],
 )
 
 # Keycloak Public (deployed by Tilt, upstream image, tag from versions.env)
