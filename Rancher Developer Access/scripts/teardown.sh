@@ -3,9 +3,11 @@
 # RDA Demo Teardown
 #
 # Runs `tilt down` then cleans up what Tilt doesn't:
-#   1. Force-deletes the `public` namespace (if stuck on finalizers)
-#   2. Prunes public demo images from the Rancher Desktop image store
+#   1. Force-kills any lingering pod in the `public` namespace
+#      (faster than `delete namespace`, which can hang on finalizers).
+#   2. Prunes public demo images from the Rancher Desktop image store.
 #
+# The `public` namespace itself is kept — `tilt up` reuses it.
 # AppCo images (dp.apps.rancher.io/*) are left intact — you'll want
 # them for the next run.
 #
@@ -35,28 +37,23 @@ echo ""
 echo "── [1/3] Running tilt down ──"
 tilt down || echo "  (tilt down exited non-zero — continuing)"
 
-# ─── 2. Force-delete the public namespace ────────────────────
-# Tilt already requests deletion of the Namespace resource, but
-# helm releases / PVCs sometimes leave finalizers blocking it.
+# ─── 2. Force-kill any lingering pods in the public namespace ─
+# tilt down already deletes Deployments / StatefulSets / Helm
+# releases, which in turn triggers pod termination — but PVCs and
+# pods with grace periods can drag it out. Force-kill short-circuits
+# that without touching the namespace itself.
 echo ""
-echo "── [2/3] Deleting public namespace ──"
+echo "── [2/3] Force-killing pods in public namespace ──"
 if kubectl get ns public >/dev/null 2>&1; then
-    kubectl delete namespace public --ignore-not-found --wait=false
-    # Wait up to 60s for clean removal
-    for i in $(seq 1 30); do
-        kubectl get ns public >/dev/null 2>&1 || break
-        sleep 2
-    done
-    # If still there, strip finalizers
-    if kubectl get ns public >/dev/null 2>&1; then
-        echo "  Namespace stuck — stripping finalizers"
-        kubectl get ns public -o json \
-            | jq '.spec.finalizers = []' \
-            | kubectl replace --raw /api/v1/namespaces/public/finalize -f - >/dev/null
+    pods=$(kubectl -n public get pods -o name 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$pods" != "0" ]; then
+        kubectl -n public delete pods --all --grace-period=0 --force 2>/dev/null || true
+        echo "  ✅ $pods pod(s) force-killed"
+    else
+        echo "  (no pods left)"
     fi
-    echo "  ✅ Namespace public deleted"
 else
-    echo "  (namespace public already absent)"
+    echo "  (namespace public does not exist — nothing to do)"
 fi
 
 # ─── 3. Prune public demo images ─────────────────────────────
