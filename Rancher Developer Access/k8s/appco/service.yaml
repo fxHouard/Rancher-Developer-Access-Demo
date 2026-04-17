@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: message-wall-appco
+  # deployed in default namespace alongside AppCo services
+spec:
+  selector:
+    app: message-wall-appco
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Traefik ingress — http://message-wall-appco.localhost/
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: message-wall-appco
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: message-wall-appco.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: message-wall-appco
+                port:
+                  number: 3000

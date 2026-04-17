@@ -2,8 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: pg-public-postgresql
-  namespace: public
+  name: demo-postgresql
   labels:
     app.kubernetes.io/name: postgresql
 spec:
@@ -17,12 +16,11 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: pg-public-postgresql
-  namespace: public
+  name: demo-postgresql
   labels:
     app.kubernetes.io/name: postgresql
 spec:
-  serviceName: pg-public-postgresql
+  serviceName: demo-postgresql
   replicas: 1
   selector:
     matchLabels:
@@ -34,7 +32,7 @@ spec:
     spec:
       containers:
         - name: postgresql
-          image: docker.io/library/postgres:PLACEHOLDER_POSTGRES_TAG
+          image: postgres:PLACEHOLDER_POSTGRES_TAG
           ports:
             - containerPort: 5432
           env:

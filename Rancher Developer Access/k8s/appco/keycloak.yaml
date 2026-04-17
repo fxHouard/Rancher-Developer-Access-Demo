@@ -21,6 +21,22 @@ spec:
         - name: realm-config
           configMap:
             name: keycloak-realm
+      initContainers:
+        - name: wait-for-postgres
+          image: dp.apps.rancher.io/containers/postgresql:18.3-7.4
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h PLACEHOLDER_PG_SVC -U demo; do
+                echo "waiting for postgres..."; sleep 2
+              done
+              # Idempotent CREATE DATABASE via psql \gexec (no grep needed —
+              # the AppCo postgresql image is minimal and has no coreutils).
+              PGPASSWORD=demo psql -h PLACEHOLDER_PG_SVC -U demo -v ON_ERROR_STOP=1 <<'SQL'
+              SELECT 'CREATE DATABASE keycloak'
+              WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='keycloak')\gexec
+              SQL
       containers:
         - name: keycloak
           image: dp.apps.rancher.io/containers/keycloak:PLACEHOLDER_KEYCLOAK_TAG
@@ -46,10 +62,21 @@ spec:
               value: "true"
             - name: KC_HEALTH_ENABLED
               value: "true"
-            - name: KEYCLOAK_ADMIN
+            # Keycloak 26+ renamed bootstrap admin env vars. The legacy
+            # KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD are silently ignored,
+            # which leaves the master realm without an admin role and
+            # eventually crashes with NPE in RealmCacheSession on first
+            # admin-cli token request.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
               value: admin
-            - name: KEYCLOAK_ADMIN_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               value: admin
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health/ready
@@ -81,3 +108,27 @@ spec:
   selector:
     app: keycloak
     variant: appco
+---
+# Traefik ingress — http://keycloak-appco.localhost/
+# Distinct hostname from keycloak-public.localhost so each Keycloak
+# owns its own cookie jar (cookies are scoped per-host, not per-port).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak-appco
+  labels:
+    app: keycloak
+    variant: appco
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: keycloak-appco.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak-appco
+                port:
+                  number: 8080

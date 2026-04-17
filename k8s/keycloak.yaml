@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+    variant: public
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+      variant: public
+  template:
+    metadata:
+      labels:
+        app: keycloak
+        variant: public
+    spec:
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h demo-postgresql -U demo; do
+                echo "waiting for postgres..."; sleep 2
+              done
+              PGPASSWORD=demo psql -h demo-postgresql -U demo -tc \
+                "SELECT 1 FROM pg_database WHERE datname='keycloak'" | grep -q 1 \
+              || PGPASSWORD=demo psql -h demo-postgresql -U demo -c "CREATE DATABASE keycloak"
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:PLACEHOLDER_KEYCLOAK_TAG
+          args: ["start-dev", "--health-enabled=true", "--import-realm"]
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://demo-postgresql:5432/keycloak
+            - name: KC_DB_USERNAME
+              value: demo
+            - name: KC_DB_PASSWORD
+              value: demo
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            # Keycloak 26+ renamed bootstrap admin env vars. The legacy
+            # KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD are silently ignored,
+            # which leaves the master realm without an admin role and
+            # eventually crashes with NPE in RealmCacheSession on first
+            # admin-cli token request.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: admin
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+    variant: public
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: keycloak
+    variant: public
+---
+# Traefik ingress — exposes keycloak on http://keycloak-public.localhost/
+# Same host across the root demo and the RDA Public variant — they're
+# the same stack, just orchestrated from different Tiltfiles.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+    variant: public
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: keycloak-public.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  number: 8080

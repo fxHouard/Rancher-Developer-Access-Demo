@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: message-wall
+spec:
+  selector:
+    app: message-wall
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Traefik ingress — exposes message-wall on http://message-wall-public.localhost/
+# Same host across root demo and RDA Public variant.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: message-wall
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: message-wall-public.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: message-wall
+                port:
+                  number: 3000

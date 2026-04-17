@@ -6,7 +6,7 @@ const PORT = 3000;
 
 // ─────────────────────────────────────────────
 // 🎨 Change this color, save, see it update!
-const ACCENT_COLOR = "#747dcd";
+const ACCENT_COLOR = "#747dcd"; 
 // ─────────────────────────────────────────────
 
 // ─── Keycloak SSO ────────────────────────────

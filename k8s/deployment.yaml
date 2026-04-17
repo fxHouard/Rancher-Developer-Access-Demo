@@ -1,18 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: message-wall-appco
-  # deployed in default namespace alongside AppCo services
+  name: message-wall
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: message-wall-appco
+      app: message-wall
   template:
     metadata:
       labels:
-        app: message-wall-appco
-        variant: appco
+        app: message-wall
+        variant: public
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
@@ -20,7 +19,7 @@ spec:
     spec:
       containers:
         - name: message-wall
-          image: message-wall-appco
+          image: message-wall
           ports:
             - containerPort: 3000
           env:
@@ -35,9 +34,10 @@ spec:
             - name: DB_NAME
               value: "demo"
             - name: KEYCLOAK_URL
-              value: "http://keycloak-appco:8080"
+              value: "http://keycloak:8080"
+            # Browser-facing Keycloak URL (used for OAuth redirects).
             - name: KEYCLOAK_PUBLIC_URL
-              value: "http://localhost:8080"
+              value: "http://keycloak-public.localhost"
           livenessProbe:
             httpGet:
               path: /health
