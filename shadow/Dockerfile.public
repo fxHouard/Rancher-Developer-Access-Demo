@@ -1,5 +1,5 @@
 ARG NODE_TAG=24
-FROM node:${NODE_TAG}
+FROM docker.io/library/node:${NODE_TAG}
 WORKDIR /app
 COPY package.json ./
 RUN npm install --no-package-lock
