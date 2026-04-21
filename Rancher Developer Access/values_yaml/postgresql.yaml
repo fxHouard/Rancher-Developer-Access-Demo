@@ -7,7 +7,7 @@ auth:
   password: demo
 image:
   postgresql:
-    tag: "18.3-7.4"
+    tag: "18.3-8.1"
 
 persistence:
   resources:

@@ -3,7 +3,7 @@ alertmanager:
 configmapReload:
   prometheus:
     image:
-      tag: 0.90.1-14.4
+      tag: 0.90.1-15.1
 global:
   imagePullSecrets:
     - application-collection
@@ -15,7 +15,7 @@ persistence:
       storage: 1Gi
 server:
   image:
-    tag: 3.11.2-1.4
+    tag: 3.11.2-2.1
   ingress:
     enabled: true
     hosts:

@@ -39,25 +39,7 @@ tilt down || echo "  (tilt down exited non-zero — continuing)"
 # Tilt already requests deletion of the Namespace resource, but
 # helm releases / PVCs sometimes leave finalizers blocking it.
 echo ""
-echo "── [2/3] Deleting public namespace ──"
-if kubectl get ns public >/dev/null 2>&1; then
-    kubectl delete namespace public --ignore-not-found --wait=false
-    # Wait up to 60s for clean removal
-    for i in $(seq 1 30); do
-        kubectl get ns public >/dev/null 2>&1 || break
-        sleep 2
-    done
-    # If still there, strip finalizers
-    if kubectl get ns public >/dev/null 2>&1; then
-        echo "  Namespace stuck — stripping finalizers"
-        kubectl get ns public -o json \
-            | jq '.spec.finalizers = []' \
-            | kubectl replace --raw /api/v1/namespaces/public/finalize -f - >/dev/null
-    fi
-    echo "  ✅ Namespace public deleted"
-else
-    echo "  (namespace public already absent)"
-fi
+
 
 # ─── 3. Prune public demo images ─────────────────────────────
 # List built from versions.env. AppCo (dp.apps.rancher.io/*) images
