@@ -13,6 +13,9 @@ persistence:
   resources:
     requests:
       storage: 1Gi
+prometheus-node-exporter:
+  image:
+    tag: 1.11.1-15.1
 server:
   image:
     tag: 3.11.2-2.1
